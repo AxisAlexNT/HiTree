@@ -2,3 +2,6 @@
 /dist/
 /libhitree.egg-info/
 /build/
+/.eggs/
+/hitree.egg-info/
+/.pytest_cache/

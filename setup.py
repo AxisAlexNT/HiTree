@@ -19,4 +19,9 @@ setup(
         'bio~=1.3.8',
         'readerwriterlock~=1.0.9'
     ],
+    tests_require=[
+        'pytest',
+        'pytest-quickcheck'
+    ],
+    test_suite='tests'
 )
