@@ -24,7 +24,7 @@ It is recommended to use virtual environments provided by `venv` module to simpl
 This library uses HiCT format for the HiC data and you can convert Cooler's `.cool` or `.mcool` files to it using [HiCT utils](https://github.com/ctlab/HiCT_Utils)
 
 ## Documentation
-This library has ContactMatrixFacet as the main interaction point. It hides all the internal methods, exposing only simple ones. Documentation for this module could be found at [doc directory](https://github.com/ctlab/HiCT/blob/master/doc/hict.api.ContactMatrixFacet.html).
+This library has ContactMatrixFacet as the main interaction point. It hides all the internal methods, exposing only simple ones. Documentation for this module could be found at [doc directory](https://github.com/ctlab/HiCT/blob/master/doc/hict.api.ContactMatrixFacet.html) (download this file and open it using your web browser).
 
 ## Building from source
 You can run `rebuild.sh` script in source directory which will perform static type-checking of module using mypy (it may produce error messages), build library from source and reinstall it, deleting current version.
