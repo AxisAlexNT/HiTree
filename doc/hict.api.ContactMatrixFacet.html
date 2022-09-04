@@ -1,0 +1,155 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN">
+<html><head><title>Python: module hict.api.ContactMatrixFacet</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+</head><body bgcolor="#f0f0f8">
+
+<table width="100%" cellspacing=0 cellpadding=2 border=0 summary="heading">
+<tr bgcolor="#7799ee">
+<td valign=bottom>&nbsp;<br>
+<font color="#ffffff" face="helvetica, arial">&nbsp;<br><big><big><strong><a href="hict.html"><font color="#ffffff">hict</font></a>.<a href="hict.api.html"><font color="#ffffff">api</font></a>.ContactMatrixFacet</strong></big></big></font></td
+><td align=right valign=bottom
+><font color="#ffffff" face="helvetica, arial"><a href=".">index</a><br><a href="file:c%3A%5Cusers%5Ctux%5Cdocuments%5Chict%5Chict%5Chict%5Capi%5Ccontactmatrixfacet.py">c:\users\tux\documents\hict\hict\hict\api\contactmatrixfacet.py</a></font></td></tr></table>
+    <p></p>
+<p>
+<table width="100%" cellspacing=0 cellpadding=2 border=0 summary="section">
+<tr bgcolor="#aa55cc">
+<td colspan=3 valign=bottom>&nbsp;<br>
+<font color="#ffffff" face="helvetica, arial"><big><strong>Modules</strong></big></font></td></tr>
+    
+<tr><td bgcolor="#aa55cc"><tt>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</tt></td><td>&nbsp;</td>
+<td width="100%"><table width="100%" summary="list"><tr><td width="25%" valign=top><a href="copy.html">copy</a><br>
+</td><td width="25%" valign=top><a href="numpy.html">numpy</a><br>
+</td><td width="25%" valign=top></td><td width="25%" valign=top></td></tr></table></td></tr></table><p>
+<table width="100%" cellspacing=0 cellpadding=2 border=0 summary="section">
+<tr bgcolor="#ee77aa">
+<td colspan=3 valign=bottom>&nbsp;<br>
+<font color="#ffffff" face="helvetica, arial"><big><strong>Classes</strong></big></font></td></tr>
+    
+<tr><td bgcolor="#ee77aa"><tt>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</tt></td><td>&nbsp;</td>
+<td width="100%"><dl>
+<dt><font face="helvetica, arial"><a href="builtins.html#object">builtins.object</a>
+</font></dt><dd>
+<dl>
+<dt><font face="helvetica, arial"><a href="hict.api.ContactMatrixFacet.html#ContactMatrixFacet">ContactMatrixFacet</a>
+</font></dt></dl>
+</dd>
+</dl>
+ <p>
+<table width="100%" cellspacing=0 cellpadding=2 border=0 summary="section">
+<tr bgcolor="#ffc8d8">
+<td colspan=3 valign=bottom>&nbsp;<br>
+<font color="#000000" face="helvetica, arial"><a name="ContactMatrixFacet">class <strong>ContactMatrixFacet</strong></a>(<a href="builtins.html#object">builtins.object</a>)</font></td></tr>
+    
+<tr bgcolor="#ffc8d8"><td rowspan=2><tt>&nbsp;&nbsp;&nbsp;</tt></td>
+<td colspan=2><tt>This&nbsp;facet&nbsp;is&nbsp;designed&nbsp;to&nbsp;be&nbsp;the&nbsp;main&nbsp;API&nbsp;<a href="builtins.html#object">object</a>&nbsp;to&nbsp;interact&nbsp;with&nbsp;our&nbsp;files&nbsp;and&nbsp;model&nbsp;without&nbsp;using&nbsp;the&nbsp;model&nbsp;methods&nbsp;directly.<br>&nbsp;</tt></td></tr>
+<tr><td>&nbsp;</td>
+<td width="100%">Static methods defined here:<br>
+<dl><dt><a name="ContactMatrixFacet-close_file"><strong>close_file</strong></a>(f: hict.core.chunked_file.ChunkedFile, need_save: bool = True) -&gt; None</dt><dd><tt>Close&nbsp;file&nbsp;using&nbsp;descriptor&nbsp;and&nbsp;save&nbsp;pending&nbsp;changes.<br>
+&nbsp;<br>
+:param&nbsp;f:&nbsp;File&nbsp;descriptor.<br>
+:param&nbsp;need_save:&nbsp;Whether&nbsp;to&nbsp;store&nbsp;unsaved&nbsp;changes&nbsp;in&nbsp;file&nbsp;or&nbsp;not.</tt></dd></dl>
+
+<dl><dt><a name="ContactMatrixFacet-get_dense_submatrix"><strong>get_dense_submatrix</strong></a>(f: hict.core.chunked_file.ChunkedFile, resolution: numpy.int64, x0: numpy.int64, y0: numpy.int64, x1: numpy.int64, y1: numpy.int64, units: hict.core.common.QueryLengthUnit = &lt;QueryLengthUnit.PIXELS: 2&gt;, exclude_hidden_contigs: bool = True) -&gt; numpy.ndarray</dt><dd><tt>Fetches&nbsp;requested&nbsp;area&nbsp;from&nbsp;contact&nbsp;matrix&nbsp;in&nbsp;the&nbsp;given&nbsp;resolution.<br>
+&nbsp;<br>
+:param&nbsp;f:&nbsp;File&nbsp;descriptor.<br>
+:param&nbsp;resolution:&nbsp;Experiment&nbsp;resolution.<br>
+:param&nbsp;x0:&nbsp;Start&nbsp;column&nbsp;of&nbsp;query&nbsp;expressed&nbsp;in&nbsp;given&nbsp;units&nbsp;(inclusive).<br>
+:param&nbsp;y0:&nbsp;Start&nbsp;row&nbsp;of&nbsp;query&nbsp;expressed&nbsp;in&nbsp;given&nbsp;units&nbsp;(inclusive).<br>
+:param&nbsp;x1:&nbsp;End&nbsp;column&nbsp;of&nbsp;query&nbsp;expressed&nbsp;in&nbsp;given&nbsp;units&nbsp;(exclusive).<br>
+:param&nbsp;y1:&nbsp;End&nbsp;row&nbsp;of&nbsp;query&nbsp;expressed&nbsp;in&nbsp;given&nbsp;units&nbsp;(exclusive).<br>
+:param&nbsp;units:&nbsp;Either&nbsp;QueryLengthUnit.PIXELS&nbsp;(0-indexed)&nbsp;or&nbsp;QueryLengthUnit.BASE_PAIRS&nbsp;(1-indexed).&nbsp;In&nbsp;both&nbsp;cases&nbsp;borders&nbsp;are&nbsp;inclusive.<br>
+:return:&nbsp;Dense&nbsp;2D&nbsp;numpy&nbsp;array&nbsp;which&nbsp;contains&nbsp;contact&nbsp;map&nbsp;submatrix&nbsp;for&nbsp;the&nbsp;given&nbsp;region.</tt></dd></dl>
+
+<dl><dt><a name="ContactMatrixFacet-get_file_descriptor"><strong>get_file_descriptor</strong></a>(filepath: str, block_cache_size: int = 64) -&gt; hict.core.chunked_file.ChunkedFile</dt><dd><tt>Create&nbsp;descriptor&nbsp;for&nbsp;working&nbsp;with&nbsp;files&nbsp;in&nbsp;our&nbsp;format.<br>
+&nbsp;<br>
+:param&nbsp;filepath:&nbsp;Path&nbsp;to&nbsp;the&nbsp;file&nbsp;relative&nbsp;to&nbsp;your&nbsp;working&nbsp;directory.<br>
+:param&nbsp;block_cache_size:&nbsp;Size&nbsp;of&nbsp;cache&nbsp;for&nbsp;dense&nbsp;blocks&nbsp;(each&nbsp;at&nbsp;most&nbsp;max_dense_size*max_dense_size*sizeof(dtype)&nbsp;bytes).<br>
+:return:&nbsp;File&nbsp;descriptor.</tt></dd></dl>
+
+<dl><dt><a name="ContactMatrixFacet-get_matrix_size_bins"><strong>get_matrix_size_bins</strong></a>(f: hict.core.chunked_file.ChunkedFile, resolution: numpy.int64) -&gt; numpy.int64</dt><dd><tt>Returns&nbsp;contact&nbsp;matrix&nbsp;size&nbsp;at&nbsp;the&nbsp;given&nbsp;resolution&nbsp;in&nbsp;bins.&nbsp;File&nbsp;should&nbsp;be&nbsp;opened.<br>
+&nbsp;<br>
+:param&nbsp;f:&nbsp;File&nbsp;descriptor.<br>
+:param&nbsp;resolution:&nbsp;Resolution&nbsp;at&nbsp;which&nbsp;the&nbsp;contact&nbsp;matrix&nbsp;size&nbsp;is&nbsp;queried.</tt></dd></dl>
+
+<dl><dt><a name="ContactMatrixFacet-get_matrix_size_px"><strong>get_matrix_size_px</strong></a>(f: hict.core.chunked_file.ChunkedFile, resolution: numpy.int64) -&gt; numpy.int64</dt><dd><tt>Returns&nbsp;contact&nbsp;matrix&nbsp;size&nbsp;at&nbsp;the&nbsp;given&nbsp;resolution&nbsp;in&nbsp;pixels.&nbsp;File&nbsp;should&nbsp;be&nbsp;opened.<br>
+&nbsp;<br>
+:param&nbsp;f:&nbsp;File&nbsp;descriptor.<br>
+:param&nbsp;resolution:&nbsp;Resolution&nbsp;at&nbsp;which&nbsp;the&nbsp;contact&nbsp;matrix&nbsp;size&nbsp;is&nbsp;queried.</tt></dd></dl>
+
+<dl><dt><a name="ContactMatrixFacet-get_px_by_bp"><strong>get_px_by_bp</strong></a>(f: hict.core.chunked_file.ChunkedFile, x0_bp: numpy.int64, resolution: numpy.int64 = 0) -&gt; hict.api.ContactMatrixFacet.ContactMatrixFacet.BasePairInPixelPosition</dt><dd><tt>Queries&nbsp;position&nbsp;of&nbsp;a&nbsp;given&nbsp;base&nbsp;pair&nbsp;in&nbsp;resolution.<br>
+&nbsp;<br>
+:param&nbsp;f:&nbsp;File&nbsp;descriptor.<br>
+:param&nbsp;x0_bp:&nbsp;Position&nbsp;expressed&nbsp;in&nbsp;base&nbsp;pairs.<br>
+:param&nbsp;resolution:&nbsp;Resolution&nbsp;for&nbsp;which&nbsp;the&nbsp;pixel&nbsp;is&nbsp;queried.<br>
+:return:&nbsp;Position&nbsp;of&nbsp;a&nbsp;pixel&nbsp;which&nbsp;corresponds&nbsp;to&nbsp;the&nbsp;given&nbsp;base&nbsp;pair.</tt></dd></dl>
+
+<dl><dt><a name="ContactMatrixFacet-get_resolutions_list"><strong>get_resolutions_list</strong></a>(f: hict.core.chunked_file.ChunkedFile) -&gt; List[numpy.int64]</dt><dd><tt>Gets&nbsp;a&nbsp;list&nbsp;of&nbsp;resolutions&nbsp;that&nbsp;are&nbsp;stored&nbsp;in&nbsp;the&nbsp;given&nbsp;chunked&nbsp;file.&nbsp;File&nbsp;should&nbsp;be&nbsp;opened.<br>
+&nbsp;<br>
+:param&nbsp;f:&nbsp;File&nbsp;descriptor.</tt></dd></dl>
+
+<dl><dt><a name="ContactMatrixFacet-group_selection_range_into_scaffold"><strong>group_selection_range_into_scaffold</strong></a>(f: hict.core.chunked_file.ChunkedFile, start_contig_id: numpy.int64, end_contig_id: numpy.int64, name: Optional[str] = None, spacer_length: int = 1000) -&gt; None</dt><dd><tt>Groups&nbsp;segment&nbsp;between&nbsp;contigs&nbsp;with&nbsp;given&nbsp;IDs&nbsp;into&nbsp;the&nbsp;new&nbsp;scaffold,&nbsp;both&nbsp;bordering&nbsp;contigs&nbsp;are&nbsp;included&nbsp;in&nbsp;it.&nbsp;All&nbsp;scaffolds&nbsp;that&nbsp;intersect&nbsp;with&nbsp;given&nbsp;segment,&nbsp;would&nbsp;be&nbsp;fully&nbsp;added&nbsp;into&nbsp;the&nbsp;new&nbsp;scaffold&nbsp;(so&nbsp;its&nbsp;borders&nbsp;might&nbsp;actually&nbsp;be&nbsp;different&nbsp;from&nbsp;start_contig_id&nbsp;and&nbsp;end_contig_id).<br>
+&nbsp;<br>
+:param&nbsp;f:&nbsp;File&nbsp;descriptor.<br>
+:param&nbsp;start_contig_id:&nbsp;ID&nbsp;of&nbsp;left&nbsp;bordering&nbsp;contig&nbsp;(inclulsive).&nbsp;If&nbsp;that&nbsp;contig&nbsp;happens&nbsp;to&nbsp;be&nbsp;inside&nbsp;some&nbsp;scaffold,&nbsp;the&nbsp;segment&nbsp;border&nbsp;is&nbsp;automatically&nbsp;extended&nbsp;to&nbsp;the&nbsp;left&nbsp;border&nbsp;of&nbsp;that&nbsp;scaffold.<br>
+:param&nbsp;end_contig_id:&nbsp;ID&nbsp;of&nbsp;right&nbsp;bordering&nbsp;contig&nbsp;(inclusive).&nbsp;If&nbsp;that&nbsp;contig&nbsp;happens&nbsp;to&nbsp;be&nbsp;inside&nbsp;some&nbsp;scaffold,&nbsp;the&nbsp;segment&nbsp;border&nbsp;is&nbsp;automatically&nbsp;extended&nbsp;to&nbsp;the&nbsp;right&nbsp;border&nbsp;of&nbsp;that&nbsp;scaffold.<br>
+:param&nbsp;name:&nbsp;New&nbsp;scaffold's&nbsp;name.&nbsp;If&nbsp;not&nbsp;provided,&nbsp;would&nbsp;be&nbsp;generaed&nbsp;automatically.<br>
+:param&nbsp;spacer_length:&nbsp;How&nbsp;many&nbsp;spacers&nbsp;'N'&nbsp;to&nbsp;include&nbsp;in&nbsp;the&nbsp;final&nbsp;FASTA&nbsp;assembly&nbsp;on&nbsp;the&nbsp;borders&nbsp;of&nbsp;this&nbsp;scaffold.</tt></dd></dl>
+
+<dl><dt><a name="ContactMatrixFacet-load_assembly_from_agp"><strong>load_assembly_from_agp</strong></a>(f: hict.core.chunked_file.ChunkedFile, agp_filepath: pathlib.Path) -&gt; None</dt><dd><tt>Loads&nbsp;assembly&nbsp;from&nbsp;specified&nbsp;AGP&nbsp;file.<br>
+&nbsp;<br>
+:param&nbsp;f:&nbsp;HiCT&nbsp;File&nbsp;descriptor.<br>
+:param&nbsp;agp_filename:&nbsp;Path&nbsp;to&nbsp;the&nbsp;AGP&nbsp;file.</tt></dd></dl>
+
+<dl><dt><a name="ContactMatrixFacet-move_selection_range"><strong>move_selection_range</strong></a>(f: hict.core.chunked_file.ChunkedFile, start_contig_id: numpy.int64, end_contig_id: numpy.int64, target_start_order: numpy.int64) -&gt; None</dt><dd><tt>Moves&nbsp;contig&nbsp;segment&nbsp;between&nbsp;given&nbsp;start&nbsp;and&nbsp;end&nbsp;contigs&nbsp;(both&nbsp;are&nbsp;included).&nbsp;If&nbsp;any&nbsp;scaffold&nbsp;intersects&nbsp;with&nbsp;selection&nbsp;range,&nbsp;then&nbsp;selection&nbsp;range&nbsp;is&nbsp;extended&nbsp;to&nbsp;include&nbsp;this&nbsp;scaffold.<br>
+&nbsp;<br>
+:param&nbsp;f:&nbsp;File&nbsp;descriptor.<br>
+:param&nbsp;start_contig_id:&nbsp;ID&nbsp;of&nbsp;the&nbsp;left&nbsp;bordering&nbsp;contig.<br>
+:param&nbsp;end_contig_id:&nbsp;ID&nbsp;of&nbsp;the&nbsp;right&nbsp;bordering&nbsp;contig.<br>
+:param&nbsp;target_start_order:&nbsp;Target&nbsp;index&nbsp;of&nbsp;the&nbsp;leftmost&nbsp;contig&nbsp;of&nbsp;selection&nbsp;range.</tt></dd></dl>
+
+<dl><dt><a name="ContactMatrixFacet-open_file"><strong>open_file</strong></a>(f: hict.core.chunked_file.ChunkedFile) -&gt; None</dt><dd><tt>Open&nbsp;file&nbsp;using&nbsp;file&nbsp;descriptor&nbsp;and&nbsp;build&nbsp;initial&nbsp;state&nbsp;of&nbsp;the&nbsp;model.<br>
+&nbsp;<br>
+:param&nbsp;f:&nbsp;File&nbsp;descriptor.</tt></dd></dl>
+
+<dl><dt><a name="ContactMatrixFacet-reverse_selection_range"><strong>reverse_selection_range</strong></a>(f: hict.core.chunked_file.ChunkedFile, start_contig_id: numpy.int64, end_contig_id: numpy.int64) -&gt; None</dt><dd><tt>Performs&nbsp;reversal&nbsp;of&nbsp;contig&nbsp;segment&nbsp;between&nbsp;given&nbsp;start&nbsp;and&nbsp;end&nbsp;contigs&nbsp;(both&nbsp;are&nbsp;included).&nbsp;Changes&nbsp;orientation&nbsp;of&nbsp;each&nbsp;contig&nbsp;on&nbsp;that&nbsp;segment&nbsp;and&nbsp;reverses&nbsp;their&nbsp;order.&nbsp;If&nbsp;any&nbsp;scaffold&nbsp;intersects&nbsp;with&nbsp;selection&nbsp;range,&nbsp;then&nbsp;selection&nbsp;range&nbsp;is&nbsp;extended&nbsp;to&nbsp;include&nbsp;this&nbsp;scaffold.<br>
+&nbsp;<br>
+:param&nbsp;f:&nbsp;File&nbsp;descriptor.<br>
+:param&nbsp;start_contig_id:&nbsp;ID&nbsp;of&nbsp;the&nbsp;left&nbsp;bordering&nbsp;contig.<br>
+:param&nbsp;end_contig_id:&nbsp;ID&nbsp;of&nbsp;the&nbsp;right&nbsp;bordering&nbsp;contig.</tt></dd></dl>
+
+<dl><dt><a name="ContactMatrixFacet-save_changes"><strong>save_changes</strong></a>(f: hict.core.chunked_file.ChunkedFile) -&gt; None</dt><dd><tt>Save&nbsp;pending&nbsp;changes&nbsp;into&nbsp;the&nbsp;file&nbsp;using&nbsp;its&nbsp;descriptor.<br>
+&nbsp;<br>
+:param&nbsp;f:&nbsp;File&nbsp;descriptor.</tt></dd></dl>
+
+<dl><dt><a name="ContactMatrixFacet-ungroup_selection_range"><strong>ungroup_selection_range</strong></a>(f: hict.core.chunked_file.ChunkedFile, start_contig_id: numpy.int64, end_contig_id: numpy.int64, name: Optional[str] = None, spacer_length: int = 1000) -&gt; None</dt><dd><tt>Takes&nbsp;selection&nbsp;range&nbsp;between&nbsp;contigs&nbsp;with&nbsp;given&nbsp;IDs&nbsp;and&nbsp;removes&nbsp;scaffolds&nbsp;that&nbsp;intersect&nbsp;with&nbsp;it.<br>
+&nbsp;<br>
+:param&nbsp;f:&nbsp;File&nbsp;descriptor.<br>
+:param&nbsp;start_contig_id:&nbsp;ID&nbsp;of&nbsp;left&nbsp;bordering&nbsp;contig&nbsp;(inclulsive).&nbsp;If&nbsp;that&nbsp;contig&nbsp;happens&nbsp;to&nbsp;be&nbsp;inside&nbsp;some&nbsp;scaffold,&nbsp;the&nbsp;segment&nbsp;border&nbsp;is&nbsp;automatically&nbsp;extended&nbsp;to&nbsp;the&nbsp;left&nbsp;border&nbsp;of&nbsp;that&nbsp;scaffold.<br>
+:param&nbsp;end_contig_id:&nbsp;ID&nbsp;of&nbsp;right&nbsp;bordering&nbsp;contig&nbsp;(inclusive).&nbsp;If&nbsp;that&nbsp;contig&nbsp;happens&nbsp;to&nbsp;be&nbsp;inside&nbsp;some&nbsp;scaffold,&nbsp;the&nbsp;segment&nbsp;border&nbsp;is&nbsp;automatically&nbsp;extended&nbsp;to&nbsp;the&nbsp;right&nbsp;border&nbsp;of&nbsp;that&nbsp;scaffold.</tt></dd></dl>
+
+<hr>
+Data descriptors defined here:<br>
+<dl><dt><strong>__dict__</strong></dt>
+<dd><tt>dictionary&nbsp;for&nbsp;instance&nbsp;variables&nbsp;(if&nbsp;defined)</tt></dd>
+</dl>
+<dl><dt><strong>__weakref__</strong></dt>
+<dd><tt>list&nbsp;of&nbsp;weak&nbsp;references&nbsp;to&nbsp;the&nbsp;object&nbsp;(if&nbsp;defined)</tt></dd>
+</dl>
+<hr>
+Data and other attributes defined here:<br>
+<dl><dt><strong>BasePairInPixelPosition</strong> = &lt;class 'hict.api.ContactMatrixFacet.ContactMatrixFacet.BasePairInPixelPosition'&gt;<dd><tt>A&nbsp;tuple&nbsp;that&nbsp;describes&nbsp;queried&nbsp;position&nbsp;in&nbsp;both&nbsp;bp&nbsp;and&nbsp;pixels.</tt></dl>
+
+<dl><dt><strong>IncorrectFileStateError</strong> = &lt;class 'hict.api.ContactMatrixFacet.ContactMatrixFacet.IncorrectFileStateError'&gt;<dd><tt>General&nbsp;exception&nbsp;that&nbsp;indicates&nbsp;file&nbsp;or&nbsp;model&nbsp;are&nbsp;in&nbsp;the&nbsp;incorrect&nbsp;state&nbsp;and&nbsp;require&nbsp;attention.</tt></dl>
+
+<dl><dt><strong>IncorrectResolution</strong> = &lt;class 'hict.api.ContactMatrixFacet.ContactMatrixFacet.IncorrectResolution'&gt;<dd><tt>An&nbsp;exception&nbsp;that&nbsp;indicates&nbsp;wrong&nbsp;resolution&nbsp;was&nbsp;queried&nbsp;(in&nbsp;a&nbsp;sense&nbsp;that&nbsp;it&nbsp;is&nbsp;not&nbsp;stored&nbsp;in&nbsp;file).</tt></dl>
+
+</td></tr></table></td></tr></table><p>
+<table width="100%" cellspacing=0 cellpadding=2 border=0 summary="section">
+<tr bgcolor="#55aa55">
+<td colspan=3 valign=bottom>&nbsp;<br>
+<font color="#ffffff" face="helvetica, arial"><big><strong>Data</strong></big></font></td></tr>
+    
+<tr><td bgcolor="#55aa55"><tt>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</tt></td><td>&nbsp;</td>
+<td width="100%"><strong>List</strong> = typing.List<br>
+<strong>Optional</strong> = typing.Optional</td></tr></table>
+</body></html>

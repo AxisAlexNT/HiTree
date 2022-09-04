@@ -8,3 +8,5 @@ __pycache__
 *.pyc
 hict/**/*.pyc
 hict/**/__pycache__
+.mypy_cache
+hict.egg-info
