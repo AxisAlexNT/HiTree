@@ -1,3 +1,8 @@
+import time
+import random
+
+random.seed(int(time.time()))
+
 import copy
 from typing import List, Dict, Callable, Tuple
 
@@ -5,34 +10,31 @@ import numpy as np
 import pytest
 from pytest_quickcheck.generator import list_of
 
-from core.common import ContigDescriptor, ContigHideType, ContigDirection
-from core.contig_tree import ContigTree
+from hict.core.common import ContigDescriptor, ContigHideType, ContigDirection
+from hict.core.contig_tree import ContigTree
 
 
 @pytest.mark.randomize(
-    resolutions=list_of(int, items=10))
+    log_resolutions=list_of(float, items=10), min_num=1.0, max_num=9.0,)
 @pytest.mark.randomize(
     contig_directions=list_of(int, items=100), min_num=0, max_num=1)
 @pytest.mark.randomize(
     contig_lengths_bp=list_of(int, items=100), min_num=0, max_num=1000000)
 @pytest.mark.randomize(
     contig_lengths_at_resolution_src=list_of(list_of(int, items=10), items=100), min_num=0, max_num=1000)
-@pytest.mark.randomize(
-    contig_hide_types=list_of(int, items=10), min_num=0, max_num=3)
 def test_build_tree(
-        resolutions,
+        log_resolutions,
         contig_directions,
         contig_lengths_bp,
-        contig_lengths_at_resolution_src,
-        contig_hide_types,
+        contig_lengths_at_resolution_src
 ):
+    resolutions = [np.abs(np.int64(10**r)) for r in log_resolutions]
     contig_count: int = len(contig_lengths_bp)
     ct, cds = build_tree(
         resolutions,
         contig_directions,
         contig_lengths_bp,
-        contig_lengths_at_resolution_src,
-        contig_hide_types
+        contig_lengths_at_resolution_src
     )
 
     assert ct.get_sizes()[1] == contig_count, "Contig count in tree must be the same as supplied"
@@ -48,31 +50,28 @@ def test_build_tree(
 
 
 @pytest.mark.randomize(
-    resolutions=list_of(int, items=10))
+    log_resolutions=list_of(float, items=10), min_num=1.0, max_num=9.0,)
 @pytest.mark.randomize(
     contig_directions=list_of(int, items=100), min_num=0, max_num=1)
 @pytest.mark.randomize(
     contig_lengths_bp=list_of(int, items=100), min_num=0, max_num=1000000)
 @pytest.mark.randomize(
     contig_lengths_at_resolution_src=list_of(list_of(int, items=10), items=100), min_num=0, max_num=1000)
-@pytest.mark.randomize(
-    contig_hide_types=list_of(int, items=10), min_num=0, max_num=3)
 @pytest.mark.randomize(left_length=int, min_num=-100, max_num=200)
 def test_split_merge_by_count(
-        resolutions,
+        log_resolutions,
         contig_directions,
         contig_lengths_bp,
         contig_lengths_at_resolution_src,
-        contig_hide_types,
         left_length
 ):
+    resolutions = [np.abs(np.int64(10**r)) for r in log_resolutions]
     contig_count: int = len(contig_lengths_bp)
     ct, cds = build_tree(
         resolutions,
         contig_directions,
         contig_lengths_bp,
-        contig_lengths_at_resolution_src,
-        contig_hide_types
+        contig_lengths_at_resolution_src
     )
     l, r = ct.split_node_by_count(ct.root, left_length)
 
@@ -145,33 +144,30 @@ def test_split_merge_by_count(
 
 
 @pytest.mark.randomize(
-    resolutions=list_of(int, items=10))
+    log_resolutions=list_of(float, items=10), min_num=1.0, max_num=9.0,)
 @pytest.mark.randomize(
     contig_directions=list_of(int, items=100), min_num=0, max_num=1)
 @pytest.mark.randomize(
     contig_lengths_bp=list_of(int, items=100), min_num=0, max_num=1000000)
 @pytest.mark.randomize(
     contig_lengths_at_resolution_src=list_of(list_of(int, items=10), items=100), min_num=0, max_num=1000)
-@pytest.mark.randomize(
-    contig_hide_types=list_of(int, items=10), min_num=0, max_num=3)
 @pytest.mark.randomize(segment_start=int, min_num=-100, max_num=200)
 @pytest.mark.randomize(segment_end=int, min_num=-100, max_num=200)
 def test_expose_by_count(
-        resolutions,
+        log_resolutions,
         contig_directions,
         contig_lengths_bp,
         contig_lengths_at_resolution_src,
-        contig_hide_types,
         segment_start,
         segment_end,
 ):
+    resolutions = [np.abs(np.int64(10**r)) for r in log_resolutions]
     contig_count: int = len(contig_lengths_bp)
     ct, cds = build_tree(
         resolutions,
         contig_directions,
         contig_lengths_bp,
         contig_lengths_at_resolution_src,
-        contig_hide_types
     )
 
     if segment_start > segment_end:
@@ -202,8 +198,12 @@ def test_expose_by_count(
                 es.less.get_sizes()[1] if es.less is not None else 0
             ) == max(0, min(segment_start, contig_count))
     ), "Less contigs should be in exposed segment less"
-    if segment_start >= contig_count or segment_end < 0:
+    if segment_start >= contig_count:
         assert es.greater is None
+        assert es.segment is None
+    elif segment_end < 0:
+        assert es.less is None
+        assert es.segment is None
     elif segment_end >= contig_count - 1:
         assert es.greater is None
     else:
@@ -250,36 +250,32 @@ def test_expose_by_count(
     assert cds == ord_after_commit, "Expose/commit should not modify contig order"
 
 @pytest.mark.randomize(
-    resolutions=list_of(int, items=10))
+    log_resolutions=list_of(float, items=10), min_num=1.0, max_num=9.0,)
 @pytest.mark.randomize(
     contig_directions=list_of(int, items=100), min_num=0, max_num=1)
 @pytest.mark.randomize(
     contig_lengths_bp=list_of(int, items=100), min_num=0, max_num=1000000)
 @pytest.mark.randomize(
     contig_lengths_at_resolution_src=list_of(list_of(int, items=10), items=100), min_num=0, max_num=1000)
-@pytest.mark.randomize(
-    contig_hide_types=list_of(int, items=10), min_num=0, max_num=3)
 @pytest.mark.randomize(segment_start=int, min_num=-10000000, max_num=20000000)
 @pytest.mark.randomize(segment_end=int, min_num=-100000000, max_num=20000000)
 @pytest.mark.randomize(resolution_idx=int, min_num=0, max_num=9)
 def test_expose_by_bp(
-        resolutions,
+        log_resolutions,
         contig_directions,
         contig_lengths_bp,
         contig_lengths_at_resolution_src,
-        contig_hide_types,
         segment_start,
         segment_end,
         resolution_idx,
 ):
-    resolutions = [np.abs(np.int64(r)) for r in resolutions]
+    resolutions = [np.abs(np.int64(10**r)) for r in log_resolutions]
     contig_count: int = len(contig_lengths_bp)
     ct, cds = build_tree(
         resolutions,
         contig_directions,
         contig_lengths_bp,
-        contig_lengths_at_resolution_src,
-        contig_hide_types
+        contig_lengths_at_resolution_src
     )
 
     resolution: np.int64 = resolutions[resolution_idx]
@@ -317,25 +313,9 @@ def test_expose_by_bp(
                     + (1 if (segment_start < total_length and segment_end >= 0) else 0)
             )
     ), "Segment should at least have the length of query"
-    # assert (
-    #         (
-    #             es.greater.get_sizes()[1] if es.greater is not None else 0
-    #         ) == (contig_count - ord_end - 1)
-    # ), "Greater contigs should be in exposed segment greater"
-    #
-    # less_cds: List[ContigDescriptor] = []
-    # segm_cds: List[ContigDescriptor] = []
-    # last_cds: List[ContigDescriptor] = []
-    #
-    # ContigTree.traverse_node(es.less, generate_traverse_fn(less_cds))
-    # ContigTree.traverse_node(es.segment, generate_traverse_fn(segm_cds))
-    # ContigTree.traverse_node(es.greater, generate_traverse_fn(last_cds))
-    #
-    # assert less_cds == cds[:ord_start], "Exposed segment's less must contain elements on positions 0...segment_start-1"
-    # assert segm_cds == cds[ord_start:(
-    #         ord_end + 1)], "Exposed segment must contain elements on positions segment_start ... segment_end"
-    # assert last_cds == cds[(
-    #                                ord_end + 1):], "Exposed segment greater must contain elements on positions segment_segment_end ... end"
+    assert (
+            (less_size + segm_size + last_size) == total_length
+    ), "All contig descriptors must fall into less, segment or greater"
     ct.commit_exposed_segment(es)
 
     ord_after_commit: List[ContigDescriptor] = []
@@ -349,14 +329,10 @@ def build_tree(
         contig_directions,
         contig_lengths_bp,
         contig_lengths_at_resolution_src,
-        contig_hide_types,
 ) -> Tuple[ContigTree, List[ContigDescriptor]]:
     resolutions = [np.abs(np.int64(r)) for r in resolutions]
     contig_lengths_bp = [np.abs(np.int64(l)) for l in contig_lengths_bp]
     contig_descriptors: List[ContigDescriptor] = []
-    res_to_cht: Dict[np.int64, ContigHideType] = dict()
-    for res, cht in zip(resolutions, contig_hide_types):
-        res_to_cht[res] = ContigHideType(cht)
     contig_lengths_at_resolution: List[Dict[np.int64, np.int64]] = []
     for clr in contig_lengths_at_resolution_src:
         contig_lengths_at_resolution.append(dict())
@@ -367,10 +343,11 @@ def build_tree(
     for i in range(0, contig_count):
         contig_descriptors.append(ContigDescriptor.make_contig_descriptor(
             i,
+            f"ctg-{i}",
             ContigDirection(np.abs(contig_directions[i]) % 2),
             contig_lengths_bp[i],
             contig_lengths_at_resolution[i],
-            copy.deepcopy(res_to_cht),
+            {res: (ContigHideType.AUTO_HIDDEN if i%2==0 else ContigHideType.FORCED_HIDDEN) if (res != np.int64(0) and contig_lengths_bp[i] < res) else (ContigHideType.AUTO_SHOWN if i%2==0 else ContigHideType.FORCED_SHOWN) for res in resolutions},
             None
         ))
 

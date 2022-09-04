@@ -5,12 +5,14 @@ from typing import Optional, Tuple, Callable, List, NamedTuple
 
 import numpy as np
 
-from hitree.core.common import StripeDescriptor, StripeDirection
+from hict.core.common import StripeDescriptor, ContigDirection, ContigHideType
 
-random.seed(706258761087560)
+# random.seed(706258761087560)
 
 
 class StripeTree(object):
+    resolution: np.int64
+
     class ExposedSegment(NamedTuple):
         less: Optional['StripeTree.Node']
         segment: Optional['StripeTree.Node']
@@ -24,20 +26,22 @@ class StripeTree(object):
         stripe_descriptor: StripeDescriptor
         subtree_count: np.int64
         subtree_length: np.int64
-        needs_changing_direction: bool
+        containing_tree: 'StripeTree'
 
         def __init__(self,
-                     contig_block: StripeDescriptor
+                     stripe_descriptor: StripeDescriptor,
+                     containing_tree: 'StripeTree'
                      ) -> None:
             super().__init__()
-            self.stripe_descriptor = contig_block
-            self.y_priority: np.int64 = random.randint(1 - sys.maxsize, sys.maxsize - 1)
+            self.stripe_descriptor = stripe_descriptor
+            self.y_priority: np.int64 = np.int64(random.randint(1 - sys.maxsize, sys.maxsize - 1))
             self.left: Optional[StripeTree.Node] = None
             self.right: Optional[StripeTree.Node] = None
             self.subtree_length: np.int64 = self.stripe_descriptor.stripe_length_bins
-            self.subtree_count: np.int64 = 1  # Implicit key for the treap
+            self.subtree_count: np.int64 = np.int64(1)  # Implicit key for the treap
             self.needs_changing_direction = False
             self.parent: Optional[StripeTree.Node] = None
+            self.containing_tree = containing_tree
 
         def update_sizes(self):
             self.subtree_count = 1
@@ -56,18 +60,17 @@ class StripeTree(object):
                     self.left.needs_changing_direction = not self.left.needs_changing_direction
                 if self.right is not None:
                     self.right.needs_changing_direction = not self.right.needs_changing_direction
-                self.stripe_descriptor.direction = StripeDirection(1 - self.stripe_descriptor.direction.value)
                 self.needs_changing_direction = False
 
-        def true_direction(self):
+        def true_direction(self) -> ContigDirection:
             self.push()
-            return self.stripe_descriptor.direction
+            return self.stripe_descriptor.contig_descriptor.direction
 
-        def true_hidden(self):
+        def true_hidden(self) -> ContigHideType:
             self.push()
-            return self.stripe_descriptor.is_hidden
+            return self.stripe_descriptor.contig_descriptor.presence_in_resolution[self.containing_tree.resolution]
 
-        def true_contig_block(self):
+        def true_stripe_descriptor(self):
             self.push()
             return self.stripe_descriptor
 
@@ -78,16 +81,28 @@ class StripeTree(object):
         def reverse_subtree(self):
             self.needs_changing_direction = not self.needs_changing_direction
 
+        def leftmost(self):
+            return StripeTree.get_leftmost(self)
+
+        def rightmost(self):
+            return StripeTree.get_rightmost(self)
+
     root: Optional[Node]
 
-    def __init__(self) -> None:
+    def __init__(self, resolution: np.int64, random_seed: Optional[int] = None) -> None:
         super().__init__()
+        if random_seed is not None:
+            random.seed(random_seed)
         self.root = None
+        self.resolution = resolution
+
+    def create_node(self, stripe_descriptor: StripeDescriptor) -> Node:
+        return StripeTree.Node(stripe_descriptor, self)
 
     def split_node_by_count(self, t: Optional[Node], k: np.int64) -> Tuple[Optional[Node], Optional[Node]]:
         if t is None:
             return None, None
-        left_count: np.int64 = t.left.subtree_count if t.left is not None else 0
+        left_count: np.int64 = t.left.subtree_count if t.left is not None else np.int64(0)
         t.push()
         if left_count >= k:
             (t1, t2) = self.split_node_by_count(t.left, k)
@@ -104,7 +119,12 @@ class StripeTree(object):
                 t2.parent = None
             return t, t2
 
-    def split_node_by_length(self, t: Optional[Node], k: np.int64, include_equal_to_the_left: bool = False) -> Tuple[
+    def split_node_by_length(
+            self,
+            t: Optional[Node],
+            k: np.int64,
+            include_equal_to_the_left: bool = False
+    ) -> Tuple[
         Optional[Node], Optional[Node]]:
         """
 `           Splits input tree into (l, r) so that total length of l is smallest possible >= k (if include = False)
@@ -118,7 +138,7 @@ class StripeTree(object):
         if k <= 0:
             return None, t
         t.push()
-        left_length: np.int64 = t.left.subtree_length if t.left is not None else 0
+        left_length: np.int64 = t.left.subtree_length if t.left is not None else np.int64(0)
         if k <= left_length:
             (t1, t2) = self.split_node_by_length(t.left, k, include_equal_to_the_left)
             t.left = t2
@@ -175,7 +195,7 @@ class StripeTree(object):
             return t2
 
     def insert_at_position(self, position: np.int64, contig_block: StripeDescriptor):
-        new_node: StripeTree.Node = StripeTree.Node(contig_block)
+        new_node: StripeTree.Node = self.create_node(contig_block)
         if self.root is not None:
             (t1, t2) = self.split_node_by_count(self.root, position)
             t1 = self.merge_nodes(t1, new_node)
@@ -184,7 +204,7 @@ class StripeTree(object):
             self.root = new_node
 
     @staticmethod
-    def traverse_node(t: Node, f: Callable[[Node], None]):
+    def traverse_node(t: Optional[Node], f: Callable[[Node], None]):
         if t is None:
             return
 
@@ -211,9 +231,10 @@ class StripeTree(object):
 
     def expose_segment(self, start_bins: np.int64, end_bins: np.int64) -> ExposedSegment:
         """
-        Exposes segment from start_bins to end_bins (both inclusive).
+        Exposes segment from (start_bins-1) to end_bins (both inclusive).
         """
         (t_le, t_gr) = self.split_node_by_length(self.root, end_bins, include_equal_to_the_left=True)
+        # TODO: Actually 1+start_bins
         (t_l, t_seg) = self.split_node_by_length(t_le, start_bins, include_equal_to_the_left=False)
         if t_seg is not None:
             t_seg.push()
@@ -231,13 +252,13 @@ class StripeTree(object):
         self.commit_exposed_segment(exposed_segment)
 
     @staticmethod
-    def find_node_by_length(t: Node, length_bins: np.int64) -> Optional[Node]:
+    def find_node_by_length(t: Optional[Node], length_bins: np.int64) -> Optional[Node]:
         if t is None:
             return None
         if length_bins == t.subtree_length:
             return t
         t.push()
-        left_subtree_length: np.int64 = (t.left.subtree_length if t.left is not None else 0)
+        left_subtree_length: np.int64 = (t.left.subtree_length if t.left is not None else np.int64(0))
         if length_bins <= left_subtree_length:
             return StripeTree.find_node_by_length(t.left, length_bins)
         elif left_subtree_length < length_bins <= (left_subtree_length + t.stripe_descriptor.stripe_length_bins):
@@ -260,10 +281,39 @@ class StripeTree(object):
     def get_blocks_info_in_segment(self, start_bins: np.int64, end_bins: np.int64) -> List[StripeDescriptor]:
         result: List[StripeDescriptor] = []
         es: StripeTree.ExposedSegment = self.expose_segment(start_bins, end_bins)
-        StripeTree.traverse_node(es.segment, lambda n: result.append(n.true_contig_descriptor()))
+        StripeTree.traverse_node(es.segment, lambda n: result.append(n.true_stripe_descriptor()))
         self.commit_exposed_segment(es)
         return result
 
     def get_blocks_for_rectangle(self, x0_bins: np.int64, y0_bins: np.int64, x1_bins: np.int64, y1_bins: np.int64) -> \
             Tuple[List[StripeDescriptor], List[StripeDescriptor]]:
         return self.get_blocks_info_in_segment(x0_bins, x1_bins), self.get_blocks_info_in_segment(y0_bins, y1_bins)
+
+    @staticmethod
+    def get_rightmost(node: Optional['StripeTree.Node']) -> Optional['StripeTree.Node']:
+        if node is None:
+            return None
+        current_node: StripeTree.Node = node
+        while current_node.right is not None:
+            current_node.push()
+            current_node = current_node.right
+        return current_node
+
+    @staticmethod
+    def get_leftmost(node: Optional['StripeTree.Node']) -> Optional['StripeTree.Node']:
+        if node is None:
+            return None
+        current_node: StripeTree.Node = node
+        while current_node.left is not None:
+            current_node.push()
+            current_node = current_node.left
+        return current_node
+
+    @staticmethod
+    def pn(n: Node):
+        print(
+            f"Node with stripe_id={n.stripe_descriptor.stripe_id} length={n.stripe_descriptor.stripe_length_bins} direction={n.true_direction()}")
+
+    @staticmethod
+    def ni(n: Node):
+        StripeTree.traverse_node(n, StripeTree.pn)

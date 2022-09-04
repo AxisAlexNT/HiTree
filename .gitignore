@@ -1,7 +1,10 @@
 /venv/
 /dist/
-/libhitree.egg-info/
 /build/
 /.eggs/
-/hitree.egg-info/
+/hict.egg-info/
 /.pytest_cache/
+__pycache__
+*.pyc
+hict/**/*.pyc
+hict/**/__pycache__
