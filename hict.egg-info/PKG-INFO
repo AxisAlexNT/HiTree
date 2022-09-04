@@ -1,7 +1,0 @@
-Metadata-Version: 2.1
-Name: hict
-Version: 0.1.1rc1
-Summary: HiCT is a model for efficient interaction with Hi-C contact matrices that actively uses Split-Merge tree structures.
-Home-page: https://genome.ifmo.ru
-Author: Alexander Serdiukov, Anton Zamyatin and CT Lab ITMO University team
-Author-email: 
