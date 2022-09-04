@@ -12,7 +12,8 @@ Hi-Tree actively uses Split/Merge tree structures (Treaps) to efficiently handle
 * Export of assembly in FASTA format;
 * Export of selection context in FASTA format;
 * Import of AGP assembly description;
-* Saving/loading work state into the file.
+* Saving/loading work state into the file;
+* Property tests are implemented using pytest and pytest-quickcheck.
 
 #### W.I.P.
 * The minimum assembly unit right now is **contig**, which cannot be split into parts;
