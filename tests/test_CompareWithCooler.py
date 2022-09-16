@@ -1,46 +1,46 @@
+from hict.api.ContactMatrixFacet import ContactMatrixFacet
+from hict.core.common import QueryLengthUnit
+import pytest
+import numpy as np
+from typing import Dict
+import cooler
+from readerwriterlock import rwlock
+from pathlib import Path
+import gc
 import time
 import random
 
 random.seed(int(time.time()))
 
-import gc
-from pathlib import Path
-from readerwriterlock import rwlock
-import cooler
-from typing import Dict
-
-import numpy as np
-import pytest
-
-from hict.core.common import QueryLengthUnit
-from hict.api.ContactMatrixFacet import ContactMatrixFacet
 
 mcool_file_path: Path = Path(
     ".", "..", "hict_server", "data", "zanu_male_4DN.mcool").resolve()
 hict_file_path: Path = Path(
     ".", "..", "hict_server", "data", "zanu_male_4DN.mcool.hict.hdf5").resolve()
 
-if not mcool_file_path.is_file():
-    raise Exception(
-        f"Test mcool file must be present for this test at {mcool_file_path}")
-
 if not hict_file_path.is_file():
-    raise Exception(
-        f"Test hict file must be present for this test at {hict_file_path}")
+    pytest.exit(msg=f"Test hict file must be present for this test at {hict_file_path}")
+    
+if not mcool_file_path.is_file():
+    pytest.exit(msg=f"Test mcool file must be present for this test at {mcool_file_path}")
+# pytestmark = pytest.mark.skipif(
+#     not hict_file_path.is_file(),
+#     reason=f"Test hict file must be present for this test at {hict_file_path}"
+# )
+# pytestmark()
+# pytestmark = pytest.mark.skipif(
+#     not mcool_file_path.is_file(),
+#     reason=f"Test mcool file must be present for this test at {mcool_file_path}"
+# )
 
 resolutions_mcool = list(map(lambda s: int(s.replace(
     '/resolutions/', '')), cooler.fileops.list_coolers(str(mcool_file_path))))
-
 hict_file = ContactMatrixFacet.get_file_descriptor(str(hict_file_path), 4)
 ContactMatrixFacet.open_file(hict_file)
 resolutions_hict = ContactMatrixFacet.get_resolutions_list(hict_file)
-
 resolution_to_size_bins: Dict[np.int64, np.int64] = dict()
-
 assert hict_file.contig_tree.root is not None, "HiCT file has no matrix inside?"
-
 total_bp_length = hict_file.contig_tree.root.get_sizes()[0][0]
-
 hict_file_lock: rwlock.RWLockWrite = rwlock.RWLockWrite()
 
 
@@ -50,6 +50,8 @@ def test_resolutions_match():
     ), "Resolutions in mCool and HiCT files should match"
 
 # NOTE: Query size is not limited so this method may fail due to the OoM
+
+
 @pytest.mark.randomize(resolution=int, choices=resolutions_mcool, ncalls=len(resolutions_mcool))
 @pytest.mark.randomize(start_row_incl_bp=int, min_num=0, max_num=total_bp_length, ncalls=5)
 @pytest.mark.randomize(start_col_incl_bp=int, min_num=0, max_num=total_bp_length, ncalls=5)
@@ -73,9 +75,11 @@ def test_compare_with_cooler(
     if start_col_incl > end_col_excl:
         start_col_incl, end_col_excl = end_col_excl, start_col_incl
     if end_row_excl - start_row_incl > 2048:
-        end_row_excl = start_row_incl + ((end_row_excl - start_row_incl) % 2048)
+        end_row_excl = start_row_incl + \
+            ((end_row_excl - start_row_incl) % 2048)
     if end_col_excl - start_col_incl > 2048:
-        end_col_excl = start_col_incl + ((end_col_excl - start_col_incl) % 2048)
+        end_col_excl = start_col_incl + \
+            ((end_col_excl - start_col_incl) % 2048)
     cooler_file: cooler.Cooler = cooler.Cooler(
         "{}::/resolutions/{}".format(str(mcool_file_path), resolution))
     cooler_matrix_selector: cooler.api.RangeSelector2D = cooler_file.matrix(
@@ -85,7 +89,8 @@ def test_compare_with_cooler(
     with hict_file_lock.gen_wlock() as hfl:
         my_dense = ContactMatrixFacet.get_dense_submatrix(
             hict_file, resolution, start_row_incl, start_col_incl, end_row_excl, end_col_excl, units=QueryLengthUnit.BINS, exclude_hidden_contigs=False)
-    my_dense = np.pad(my_dense, [(0, end_row_excl-start_row_incl-my_dense.shape[0]), (0, end_col_excl-start_col_incl-my_dense.shape[1])], mode='constant', constant_values=0)
+    my_dense = np.pad(my_dense, [(0, end_row_excl-start_row_incl-my_dense.shape[0]), (0,
+                      end_col_excl-start_col_incl-my_dense.shape[1])], mode='constant', constant_values=0)
     assert (
         my_dense.shape == (end_row_excl-start_row_incl,
                            end_col_excl-start_col_incl)
@@ -128,8 +133,9 @@ def test_compare_square_queries_with_cooler(
                                                       start_col_incl:end_col_excl]
     with hict_file_lock.gen_wlock() as hfl:
         my_dense = ContactMatrixFacet.get_dense_submatrix(
-            hict_file, resolution, start_row_incl, start_col_incl, end_row_excl, end_col_excl, units=QueryLengthUnit.BINS, exclude_hidden_contigs=False)    
-    my_dense = np.pad(my_dense, [(0, query_size-my_dense.shape[0]), (0, query_size-my_dense.shape[1])], mode='constant', constant_values=0)
+            hict_file, resolution, start_row_incl, start_col_incl, end_row_excl, end_col_excl, units=QueryLengthUnit.BINS, exclude_hidden_contigs=False)
+    my_dense = np.pad(my_dense, [(0, query_size-my_dense.shape[0]), (0,
+                      query_size-my_dense.shape[1])], mode='constant', constant_values=0)
     assert (
         my_dense.shape == (query_size, query_size)
     ), f"Matrix shape {my_dense.shape} should be equal to that of query: {(query_size, query_size)}, whereas cooler returned {cooler_dense.shape}"
@@ -174,7 +180,8 @@ def test_compare_rectangular_queries_with_cooler(
     with hict_file_lock.gen_wlock() as hfl:
         my_dense = ContactMatrixFacet.get_dense_submatrix(
             hict_file, resolution, start_row_incl, start_col_incl, end_row_excl, end_col_excl, units=QueryLengthUnit.BINS, exclude_hidden_contigs=False)
-    my_dense = np.pad(my_dense, [(0, query_size_row-my_dense.shape[0]), (0, query_size_col-my_dense.shape[1])], mode='constant', constant_values=0)
+    my_dense = np.pad(my_dense, [(0, query_size_row-my_dense.shape[0]), (0,
+                      query_size_col-my_dense.shape[1])], mode='constant', constant_values=0)
     assert (
         my_dense.shape == (query_size_row, query_size_col)
     ), f"Matrix shape {my_dense.shape} should be equal to that of query: {(query_size_row, query_size_col)}, whereas cooler returned {cooler_dense.shape}"
@@ -211,9 +218,11 @@ def test_hict_file_should_be_symmetric(
     if start_col_incl > end_col_excl:
         start_col_incl, end_col_excl = end_col_excl, start_col_incl
     if end_row_excl - start_row_incl > 2048:
-        end_row_excl = start_row_incl + ((end_row_excl - start_row_incl) % 2048)
+        end_row_excl = start_row_incl + \
+            ((end_row_excl - start_row_incl) % 2048)
     if end_col_excl - start_col_incl > 2048:
-        end_col_excl = start_col_incl + ((end_col_excl - start_col_incl) % 2048)
+        end_col_excl = start_col_incl + \
+            ((end_col_excl - start_col_incl) % 2048)
     with hict_file_lock.gen_wlock() as hfl:
         plain_dense = ContactMatrixFacet.get_dense_submatrix(
             hict_file, resolution, start_row_incl, start_col_incl, end_row_excl, end_col_excl, units=QueryLengthUnit.BINS, exclude_hidden_contigs=False)

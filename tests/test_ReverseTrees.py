@@ -25,13 +25,11 @@ mcool_file_path: Path = Path(
 hict_file_path: Path = Path(
     ".", "..", "hict_server", "data", "zanu_male_4DN.mcool.hict.hdf5").resolve()
 
-if not mcool_file_path.is_file():
-    raise Exception(
-        f"Test mcool file must be present for this test at {mcool_file_path}")
-
 if not hict_file_path.is_file():
-    raise Exception(
-        f"Test hict file must be present for this test at {hict_file_path}")
+    pytest.exit(msg=f"Test hict file must be present for this test at {hict_file_path}")
+    
+if not mcool_file_path.is_file():
+    pytest.exit(msg=f"Test mcool file must be present for this test at {mcool_file_path}")
 
 resolutions_mcool = list(map(lambda s: int(s.replace(
     '/resolutions/', '')), cooler.fileops.list_coolers(str(mcool_file_path))))
