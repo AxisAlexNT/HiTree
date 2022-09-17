@@ -554,6 +554,11 @@ class ContigTree:
         self.root = self.merge_nodes(t_le, t_gr)
 
     def reverse_contigs_in_segment(self, start_index: np.int64, end_index: np.int64):
+        """
+        Reverses contigs between two give indices (both inclusive).
+        @param start_index: Start index of contig (inclusive).
+        @param end_index: End index of contig (inclusive).
+        """
         segm: ContigTree.ExposedSegment = self.expose_segment_by_count(start_index, end_index)
         (t_l, t_seg, t_gr) = segm
         if t_seg is not None:

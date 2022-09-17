@@ -1,10 +1,6 @@
-import time
-import random
-
-random.seed(int(time.time()))
-
-import copy
 import math
+import random
+import time
 from typing import List, Dict, Callable, Tuple
 
 import numpy as np
@@ -15,11 +11,13 @@ from hict.core.common import ContigDescriptor, ContigHideType, ContigDirection, 
 from hict.core.contig_tree import ContigTree
 from hict.core.stripe_tree import StripeTree
 
+random.seed(int(time.time()))
+
 max_stripe_size: int = 256
 
 
 @pytest.mark.randomize(
-    log_resolutions=list_of(float, items=10), min_num=1.0, max_num=9.0,)
+    log_resolutions=list_of(float, items=10), min_num=1.0, max_num=9.0, )
 @pytest.mark.randomize(
     resolution_index=int, min_num=0, max_num=9)
 @pytest.mark.randomize(
@@ -35,7 +33,7 @@ def test_build_tree(
         contig_lengths_bp,
         contig_lengths_at_resolution_src
 ):
-    resolutions = [np.abs(np.int64(10**r)) for r in log_resolutions]
+    resolutions = [np.abs(np.int64(10 ** r)) for r in log_resolutions]
     contig_count: int = len(contig_lengths_bp)
     resolution = resolutions[resolution_index]
     ct, cds, st, sds = build_trees(
@@ -49,16 +47,16 @@ def test_build_tree(
     assert st.root is not None, "Stripe tree is empty?"
 
     assert (
-        st.root.get_sizes().block_count == (
-            sum([max(1, int(math.ceil(
-                cd.contig_length_at_resolution[resolution] / max_stripe_size))) for cd in cds])
-        )
+            st.root.get_sizes().block_count == (
+        sum([max(1, int(math.ceil(
+            cd.contig_length_at_resolution[resolution] / max_stripe_size))) for cd in cds])
+    )
     ), "Each contig should be divided into stripes no more that max_stripe_size length"
 
     assert (
-        st.root.get_sizes().length_bins == (
-            sum([cd.contig_length_at_resolution[resolution] for cd in cds])
-        )
+            st.root.get_sizes().length_bins == (
+        sum([cd.contig_length_at_resolution[resolution] for cd in cds])
+    )
     ), "Stripe tree length in bins must be equal to the total contig length in bins"
 
     ordered_contig_ids_in_stripe_tree: List[np.int64] = []
@@ -75,7 +73,7 @@ def test_build_tree(
 
 
 @pytest.mark.randomize(
-    log_resolutions=list_of(float, items=10), min_num=1.0, max_num=9.0,)
+    log_resolutions=list_of(float, items=10), min_num=1.0, max_num=9.0, )
 @pytest.mark.randomize(
     resolution_index=int, min_num=0, max_num=9)
 @pytest.mark.randomize(
@@ -85,7 +83,7 @@ def test_build_tree(
 @pytest.mark.randomize(
     contig_lengths_at_resolution_src=list_of(list_of(int, items=10), items=100), min_num=0, max_num=1000)
 @pytest.mark.randomize(left_count=int, min_num=-100, max_num=200)
-def test_build_tree(
+def test_split_stripe_tree_by_count(
         log_resolutions,
         resolution_index,
         contig_directions,
@@ -93,7 +91,7 @@ def test_build_tree(
         contig_lengths_at_resolution_src,
         left_count
 ):
-    resolutions = [np.abs(np.int64(10**r)) for r in log_resolutions]
+    resolutions = [np.abs(np.int64(10 ** r)) for r in log_resolutions]
     contig_count: int = len(contig_lengths_bp)
     resolution = resolutions[resolution_index]
     ct, cds, st, sds = build_trees(
@@ -127,42 +125,42 @@ def test_build_tree(
 
     if left_count < 0:
         assert (
-            l_count == 0
+                l_count == 0
         ), "If splitting key is less than zero, there should be empty left subtree after split"
         assert (
-            r_count == stripe_count
+                r_count == stripe_count
         ), "If splitting key is less than zero, all nodes should be contained in right subtree after split"
         assert (
-            sdl == []
+                sdl == []
         ), "Left subtree should be empty"
         assert (
-            sdr == sds
+                sdr == sds
         ), "All nodes must belong to the right subtree and order should not be changed"
     elif 0 <= left_count < stripe_count:
         assert (
-            l_count == left_count
+                l_count == left_count
         ), "After split, left subtree should contain requested node count"
         assert (
-            r_count == (stripe_count - left_count)
+                r_count == (stripe_count - left_count)
         ), "After split, right subtree should contain all nodes except requested node count"
         assert (
-            sdl == sds[:left_count]
+                sdl == sds[:left_count]
         ), "Left subtree should contain requested nodes preserving original order"
         assert (
-            sdr == sds[left_count:]
+                sdr == sds[left_count:]
         ), "Right subtree should contain all other nodes preserving original order"
     else:
         assert (
-            l_count == stripe_count
+                l_count == stripe_count
         ), "If splitting key is greater or equal than contig count, all nodes should be in left subtree after split"
         assert (
-            r_count == 0
+                r_count == 0
         ), "If splitting key is greater or equal than contig count, right subtree must be empty"
         assert (
-            sdl == sds
+                sdl == sds
         ), "All contigs must have fallen into left subtree preserving original order"
         assert (
-            sdr == []
+                sdr == []
         ), "Right subtree must be empty"
 
     st.root = st.merge_nodes(l, r)
@@ -181,7 +179,7 @@ def test_build_tree(
 
 
 @pytest.mark.randomize(
-    log_resolutions=list_of(float, items=10), min_num=1.0, max_num=9.0,)
+    log_resolutions=list_of(float, items=10), min_num=1.0, max_num=9.0, )
 @pytest.mark.randomize(
     resolution_index=int, min_num=0, max_num=9)
 @pytest.mark.randomize(
@@ -200,7 +198,7 @@ def test_expose_contig_stripes(
         contig_index,
         contig_lengths_at_resolution_src,
 ):
-    resolutions = [np.abs(np.int64(10**r)) for r in log_resolutions]
+    resolutions = [np.abs(np.int64(10 ** r)) for r in log_resolutions]
     contig_count: int = len(contig_lengths_bp)
     resolution = resolutions[resolution_index]
     ct, cds, st, sds = build_trees(
@@ -218,7 +216,7 @@ def test_expose_contig_stripes(
         contig_index)
 
     es = st.expose_segment(
-        1+location_in_resolutions[resolution][0], location_in_resolutions[resolution][1])
+        1 + location_in_resolutions[resolution][0], location_in_resolutions[resolution][1])
 
     def generate_traverse_fn(lst: List[StripeDescriptor]) -> Callable[[StripeTree.Node], None]:
         def traverse_fn(node: StripeTree.Node) -> None:
@@ -271,6 +269,7 @@ def test_expose_contig_stripes(
     assert ordered_contig_ids_in_stripe_tree == [
         cd.contig_id for cd in cds], "Split/merge should not modify original order of contigs"
 
+
 def build_trees(
         resolutions,
         resolution,
@@ -296,7 +295,8 @@ def build_trees(
             contig_lengths_bp[i],
             contig_lengths_at_resolution[i],
             {res: (ContigHideType.AUTO_HIDDEN if i % 2 == 0 else ContigHideType.FORCED_HIDDEN) if (res != np.int64(
-                0) and contig_lengths_bp[i] < res) else (ContigHideType.AUTO_SHOWN if i % 2 == 0 else ContigHideType.FORCED_SHOWN) for res in resolutions},
+                0) and contig_lengths_bp[i] < res) else (
+                ContigHideType.AUTO_SHOWN if i % 2 == 0 else ContigHideType.FORCED_SHOWN) for res in resolutions},
             None
         ))
 
@@ -315,10 +315,11 @@ def build_trees(
         for part in range(0, max(1, part_count)):
             sd = StripeDescriptor.make_stripe_descriptor(
                 stripe_id,
-                max_stripe_size if ((1+part)*max_stripe_size < contig_lengths_at_resolution[i][resolution]) else (
-                    contig_lengths_at_resolution[i][resolution] - (part)*max_stripe_size),
-                (max_stripe_size*resolution) if ((1+part)*max_stripe_size < contig_lengths_at_resolution[i][resolution]) else (
-                    contig_lengths_bp[i] % (max_stripe_size*resolution)),
+                max_stripe_size if ((1 + part) * max_stripe_size < contig_lengths_at_resolution[i][resolution]) else (
+                        contig_lengths_at_resolution[i][resolution] - (part) * max_stripe_size),
+                (max_stripe_size * resolution) if (
+                        (1 + part) * max_stripe_size < contig_lengths_at_resolution[i][resolution]) else (
+                        contig_lengths_bp[i] % (max_stripe_size * resolution)),
                 contig_descriptors[i]
             )
             stripe_descriptors.append(sd)
