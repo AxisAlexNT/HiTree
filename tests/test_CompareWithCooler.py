@@ -80,6 +80,10 @@ def test_compare_with_cooler(
     if end_col_excl - start_col_incl > 2048:
         end_col_excl = start_col_incl + \
             ((end_col_excl - start_col_incl) % 2048)
+    if start_row_incl > end_row_excl:
+        start_row_incl, end_row_excl = end_row_excl, start_row_incl
+    if start_col_incl > end_col_excl:
+        start_col_incl, end_col_excl = end_col_excl, start_col_incl
     cooler_file: cooler.Cooler = cooler.Cooler(
         "{}::/resolutions/{}".format(str(mcool_file_path), resolution))
     cooler_matrix_selector: cooler.api.RangeSelector2D = cooler_file.matrix(
