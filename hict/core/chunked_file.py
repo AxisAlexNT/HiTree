@@ -425,8 +425,9 @@ class ChunkedFile(object):
             contig_segment_end_bins: np.int64 = end_px_excl
 
             stripe_tree: StripeTree = self.matrix_trees[resolution]
+            # 1+start because (start) bins should not be touched to the left of the query
             exposed_stripe_segment: StripeTree.ExposedSegment = stripe_tree.expose_segment(
-                first_segment_contig_start_bins, contig_segment_end_bins)
+                1+first_segment_contig_start_bins, contig_segment_end_bins)
             if exposed_stripe_segment.segment is None:
                 stripe_tree.commit_exposed_segment(exposed_stripe_segment)
                 return 0, []

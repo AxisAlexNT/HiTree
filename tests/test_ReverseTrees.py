@@ -109,8 +109,11 @@ def test_reverse_contig_segment(log_resolutions, resolution_index, contig_direct
 
     assert st.root is not None, "Stripe tree is empty?"
 
-    ctgd, location_in_resolutions, location_in_resolutions_excluding_hidden, left_subsize_count = ct.get_contig_location(
+    start_ctgd, start_location_in_resolutions, start_location_in_resolutions_excluding_hidden, start_left_subsize_count = ct.get_contig_location(
         start_contig_id)
+    
+    end_ctgd, end_location_in_resolutions, end_location_in_resolutions_excluding_hidden, end_left_subsize_count = ct.get_contig_location(
+        end_contig_id)
 
     cds = copy.deepcopy(cds)
     sds = copy.deepcopy(sds)
@@ -127,7 +130,7 @@ def test_reverse_contig_segment(log_resolutions, resolution_index, contig_direct
 
     ct.reverse_contigs_in_segment(start_contig_id, end_contig_id)
 
-    st.reverse_direction_in_bins(1 + location_in_resolutions[resolution][0], location_in_resolutions[resolution][1])
+    st.reverse_direction_in_bins(1 + start_location_in_resolutions[resolution][0], end_location_in_resolutions[resolution][1])
 
     def generate_stripe_tree_traverse_fn(lst: List[StripeDescriptor]) -> Callable[[StripeTree.Node], None]:
         def st_traverse_fn(node: StripeTree.Node) -> None:
@@ -168,7 +171,7 @@ def test_reverse_contig_segment(log_resolutions, resolution_index, contig_direct
         assert (list(filter(lambda s: s.contig_descriptor.contig_id not in contig_ids_to_be_reversed, sds)) == list(
             filter(lambda s: s.contig_descriptor.contig_id not in contig_ids_to_be_reversed,
                 sds_after_reversal))), "Stripes of other contigs should not be modified"
-        assert all((sd.contig_descriptor.direction != cds[start_contig_id].direction for sd in
+        assert all((sd.contig_descriptor.direction != cds[sd.contig_descriptor.contig_id].direction for sd in
         filter(lambda s: s.contig_descriptor.contig_id in contig_ids_to_be_reversed,
             sds_after_reversal))), "All stripes of reversed contig should be reversed"
 
