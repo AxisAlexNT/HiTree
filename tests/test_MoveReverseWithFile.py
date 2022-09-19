@@ -74,7 +74,7 @@ check_no_scaffolds_present_in_test_file()
 
 
 @pytest.mark.randomize(contig_id=int, min_num=0, max_num=contig_count - 1, ncalls=contig_count)
-@pytest.mark.randomize(target_order=int, min_num=-10, max_num=contig_count + 10, ncalls=contig_count+10)
+@pytest.mark.randomize(target_order=int, min_num=-10, max_num=contig_count + 10, ncalls=contig_count + 10)
 @pytest.mark.randomize(stripe_tree_resolution=int, choices=resolutions_mcool)
 def test_move_single_contig(
         contig_id,
@@ -120,15 +120,15 @@ def test_move_single_contig(
             cds_after_move[expected_order] == cd
     ), "Target position should contain requested contig"
 
-    if target_order <= initial_order:
+    if expected_order <= initial_order:
         assert (
-                cds_after_move[:target_order] == cds[:target_order]
+                cds_after_move[:expected_order] == cds[:expected_order]
         ), "Contigs before target position should not be modified if it precedes initial position"
         assert (
                 cds_after_move[1 + initial_order:] == cds[1 + initial_order:]
         ), "Contigs after initial position should not be modified if it follows target position"
         assert (
-                cds_after_move[1 + target_order:1 + initial_order] == cds[target_order:initial_order]
+                cds_after_move[1 + expected_order:1 + initial_order] == cds[expected_order:initial_order]
         ), "Contigs between target and initial positions should be cyclically shifted right by one position"
     else:
         # initial_order < targetOrder
@@ -136,10 +136,10 @@ def test_move_single_contig(
                 cds_after_move[:initial_order] == cds[:initial_order]
         ), "Contigs before initial position should not be modified if it precedes target position"
         assert (
-                cds_after_move[1 + target_order:] == cds[1 + target_order:]
+                cds_after_move[1 + expected_order:] == cds[1 + expected_order:]
         ), "Contigs after target position should not be modified if it follows initial position"
         assert (
-                cds_after_move[initial_order:target_order] == cds[1 + initial_order:1 + target_order]
+                cds_after_move[initial_order:expected_order] == cds[1 + initial_order:1 + expected_order]
         ), "Contigs between initial and target positions should be cyclically shifted left by one position"
         # 01234567
         # 012I45T7
