@@ -117,7 +117,7 @@ def test_move_single_contig(
     assert actual_order == expected_order, f"Expected to place contig with id={contig_id} at the place {expected_order} but not {actual_order}"
 
     assert (
-            cds_after_move[target_order] == cd
+            cds_after_move[expected_order] == cd
     ), "Target position should contain requested contig"
 
     if target_order <= initial_order:
