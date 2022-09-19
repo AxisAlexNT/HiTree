@@ -74,7 +74,7 @@ check_no_scaffolds_present_in_test_file()
 
 
 @pytest.mark.randomize(contig_id=int, min_num=0, max_num=contig_count - 1, ncalls=contig_count)
-@pytest.mark.randomize(target_order=int, min_num=-10, max_num=contig_count + 10, ncalls=5)
+@pytest.mark.randomize(target_order=int, min_num=-10, max_num=contig_count + 10, ncalls=contig_count+10)
 @pytest.mark.randomize(stripe_tree_resolution=int, choices=resolutions_mcool)
 def test_move_single_contig(
         contig_id,
@@ -117,7 +117,7 @@ def test_move_single_contig(
     assert actual_order == expected_order, f"Expected to place contig with id={contig_id} at the place {expected_order} but not {actual_order}"
 
     assert (
-        cds_after_move[target_order] == cd
+            cds_after_move[target_order] == cd
     ), "Target position should contain requested contig"
 
     if target_order <= initial_order:
@@ -125,10 +125,10 @@ def test_move_single_contig(
                 cds_after_move[:target_order] == cds[:target_order]
         ), "Contigs before target position should not be modified if it precedes initial position"
         assert (
-                cds_after_move[1+initial_order:] == cds[1+initial_order:]
+                cds_after_move[1 + initial_order:] == cds[1 + initial_order:]
         ), "Contigs after initial position should not be modified if it follows target position"
         assert (
-                cds_after_move[1+target_order:1+initial_order] == cds[target_order:initial_order]
+                cds_after_move[1 + target_order:1 + initial_order] == cds[target_order:initial_order]
         ), "Contigs between target and initial positions should be cyclically shifted right by one position"
     else:
         # initial_order < targetOrder
@@ -139,11 +139,35 @@ def test_move_single_contig(
                 cds_after_move[1 + target_order:] == cds[1 + target_order:]
         ), "Contigs after target position should not be modified if it follows initial position"
         assert (
-                cds_after_move[initial_order:target_order] == cds[1+initial_order:1+target_order]
+                cds_after_move[initial_order:target_order] == cds[1 + initial_order:1 + target_order]
         ), "Contigs between initial and target positions should be cyclically shifted left by one position"
         # 01234567
         # 012I45T7
         # 01245TI7
+
+    ContactMatrixFacet.move_selection_range(hict_file, contig_id, contig_id, initial_order)
+    (
+        _,
+        _,
+        _,
+        returned_order
+    ) = hict_file.get_contig_location(contig_id)
+
+    cds_after_return: List[ContigDescriptor] = []
+    sds_after_return: List[StripeDescriptor] = []
+    hict_file.contig_tree.traverse(generate_contig_tree_traverse_fn(cds_after_return))
+    hict_file.matrix_trees[stripe_tree_resolution].traverse(generate_stripe_tree_traverse_fn(sds_after_return))
+
+    assert (
+            returned_order == initial_order
+    ), "After moving contig back and forth, it should be at its original position"
+
+    assert (
+            cds_after_return == cds
+    ), "Contig descriptors should not be modified after move and return"
+    assert (
+            sds_after_return == sds
+    ), "Stripe descriptors should not be modified after move and return"
 
     hict_file.clear_caches(saved_blocks=True)
     gc.collect()
