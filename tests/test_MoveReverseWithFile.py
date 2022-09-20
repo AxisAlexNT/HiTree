@@ -98,6 +98,12 @@ def test_move_single_contig(
         initial_order
     ) = hict_file.get_contig_location(contig_id)
 
+    linsearch_initial_order: int = next(filter(lambda icd: icd[1].contig_id == contig_id, enumerate(cds)))[0]
+
+    assert (
+            linsearch_initial_order == initial_order
+    ), f"Naive-searched initial order of contig {linsearch_initial_order} is different from get_contig_location() {initial_order}"
+
     first_stripe_of_contig_order: int = next(
         filter(
             lambda isd: isd[1].contig_descriptor.contig_id == contig_id,
@@ -126,6 +132,12 @@ def test_move_single_contig(
         location_in_resolutions_excluding_hidden,
         actual_order
     ) = hict_file.get_contig_location(contig_id)
+
+    linsearch_actual_order: int = next(filter(lambda icd: icd[1].contig_id == contig_id, enumerate(cds_after_move)))[0]
+
+    assert (
+            linsearch_actual_order == actual_order
+    ), f"Naive-searched actual order of contig {linsearch_actual_order} after move is different from get_contig_location() {actual_order} after move"
 
     assert actual_order == expected_order, f"Expected to place contig with id={contig_id} at the place {expected_order} but not {actual_order}"
 
@@ -299,7 +311,6 @@ def test_move_single_contig(
 
     hict_file.clear_caches(saved_blocks=True)
     gc.collect()
-
 
 # @pytest.mark.randomize(start_contig_id=int, min_num=0, max_num=contig_count - 1, ncalls=max(5, contig_count // 4))
 # @pytest.mark.randomize(end_contig_id=int, min_num=0, max_num=contig_count - 1, ncalls=max(5, contig_count // 4))

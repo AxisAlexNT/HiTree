@@ -753,13 +753,13 @@ class ChunkedFile(object):
         query_end_col_in_coverage_matrix_excl: np.int64 = query_start_col_in_coverage_matrix_incl + query_length_cols
 
         # TODO: Assertions should consider that query might be larger than the matrix itself
-        assert (
-                dense_coverage_matrix.shape[0] >= query_end_row_in_coverage_matrix_excl
-        ), "Coverage matrix does not cover the whole query by row count??"
-
-        assert (
-                dense_coverage_matrix.shape[1] >= query_end_col_in_coverage_matrix_excl
-        ), "Coverage matrix does not cover the whole query??"
+        # assert (
+        #         dense_coverage_matrix.shape[0] >= query_end_row_in_coverage_matrix_excl
+        # ), "Coverage matrix does not cover the whole query by row count??"
+        #
+        # assert (
+        #         dense_coverage_matrix.shape[1] >= query_end_col_in_coverage_matrix_excl
+        # ), "Coverage matrix does not cover the whole query??"
 
         return (
             dense_coverage_matrix,
@@ -1733,9 +1733,8 @@ class ChunkedFile(object):
 
         requestedIdToContigDirection: Dict[np.int64, ContigDirection] = dict()
 
-        for contig_order, contig_record in enumerate(contig_records):
+        for contig_record in contig_records:
             contig_id = self.contig_name_to_contig_id[contig_record.name]
-            self.move_contig_by_id(contig_id, contig_order)
             requestedIdToContigDirection[contig_id] = contig_record.direction
 
         contigIdsToBeRotated: List[np.int64] = []
@@ -1744,24 +1743,41 @@ class ChunkedFile(object):
             if n.contig_descriptor.direction != requestedIdToContigDirection[n.contig_descriptor.contig_id]:
                 contigIdsToBeRotated.append(n.contig_descriptor.contig_id)
 
-        self.contig_tree.traverse(traverse_directions)
-
-        for contig_id in contigIdsToBeRotated:
-            self.reverse_contig_by_id(contig_id)
-
+        # Clear previous scaffolds info to rotate segments
         if self.contig_tree.root is not None:
             self.contig_tree.root.contig_descriptor.scaffold_id = None
             self.contig_tree.root.needs_updating_scaffold_id_in_subtree = True
 
         self.scaffold_holder.clear()
 
+        self.contig_tree.traverse(traverse_directions)
+
+        for contig_order, contig_record in enumerate(contig_records):
+            contig_id = self.contig_name_to_contig_id[contig_record.name]
+            try:
+                self.move_selection_range(contig_id, contig_id, contig_order)
+            except AssertionError as e:
+                # raise e
+                self.move_selection_range(contig_id, contig_id, contig_order)
+
+        for contig_id in contigIdsToBeRotated:
+            self.reverse_selection_range(contig_id, contig_id)
+
         for scaffold_record in scaffold_records:
-            self.scaffold_holder.create_scaffold(
+            start_contig_id: np.int64 = self.contig_name_to_contig_id[scaffold_record.start_ctg]
+            end_contig_id: np.int64 = self.contig_name_to_contig_id[scaffold_record.end_ctg]
+            sd: ScaffoldDescriptor = self.scaffold_holder.create_scaffold(
                 scaffold_record.name, scaffold_borders=ScaffoldBorders(
-                    self.contig_name_to_contig_id[scaffold_record.start_ctg],
-                    self.contig_name_to_contig_id[scaffold_record.end_ctg]
+                    start_contig_id,
+                    end_contig_id
                 )
             )
+            _, start_order = self.contig_tree.get_contig_order(start_contig_id)
+            _, end_order = self.contig_tree.get_contig_order(end_contig_id)
+            es: ContigTree.ExposedSegment = self.contig_tree.expose_segment_by_count(start_order, end_order)
+            es.segment.contig_descriptor.scaffold_id = sd.scaffold_id
+            es.segment.needs_updating_scaffold_id_in_subtree = True
+            self.contig_tree.commit_exposed_segment(es)
 
     def get_contig_descriptors_in_range(
             self,
