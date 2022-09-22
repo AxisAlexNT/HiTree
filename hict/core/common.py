@@ -32,7 +32,11 @@ class ContigHideType(Enum):
 class ScaffoldBorders(RecordClass):
     start_contig_id: np.int64
     end_contig_id: np.int64
-
+    
+class NormalizationType(Enum):
+    LINEAR = 0
+    LOG2 = 1
+    COOLER_BALANCE = 2
 
 class ContigDescriptor(RecordClass):
     contig_id: np.int64

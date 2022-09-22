@@ -6,7 +6,7 @@ from typing import NamedTuple, Optional
 import numpy as np
 
 from hict.core.chunked_file import ChunkedFile
-from hict.core.common import QueryLengthUnit
+from hict.core.common import NormalizationType, QueryLengthUnit
 from hict.core.contig_tree import ContigTree
 
 
@@ -190,7 +190,8 @@ class ContactMatrixFacet(object):
             x1: np.int64,
             y1: np.int64,
             units: QueryLengthUnit = QueryLengthUnit.PIXELS,
-            exclude_hidden_contigs: bool = True
+            exclude_hidden_contigs: bool = True,
+            normalization: NormalizationType = NormalizationType.LINEAR
     ) -> np.ndarray:
         """
         Fetches requested area from contact matrix in the given resolution.
@@ -202,6 +203,7 @@ class ContactMatrixFacet(object):
         :param x1: End column of query expressed in given units (exclusive).
         :param y1: End row of query expressed in given units (exclusive).
         :param units: Either QueryLengthUnit.PIXELS (0-indexed) or QueryLengthUnit.BASE_PAIRS (1-indexed). In both cases borders are inclusive.
+        :param normalization: Which algorithm of global map normalization should be applied to the requested fragment. Default is LINEAR which means no normalization (raw contact counts are returned). 
         :return: Dense 2D numpy array which contains contact map submatrix for the given region.
         """
         # x0 = max(0, x0)
@@ -216,6 +218,7 @@ class ContactMatrixFacet(object):
 
         if resolution not in f.resolutions:
             raise ContactMatrixFacet.IncorrectResolution()
+        submatrix: np.ndarray
         if units == QueryLengthUnit.BASE_PAIRS:
             # (x|y)(0|1)_bp -> (x|y)(0|1)_px using 1:1 "resolution" to find start and ending contigs
             # In start contig, find which bin (pixel) this query falls into,
@@ -232,8 +235,7 @@ class ContactMatrixFacet(object):
             y1_in_contig_px = ContactMatrixFacet.get_px_by_bp(
                 f, y1, resolution)
 
-            # Return dense submatrix:
-            return f.get_submatrix(
+            submatrix = f.get_submatrix(
                 resolution,
                 x0_in_contig_px.global_position_px,
                 y0_in_contig_px.global_position_px,
@@ -243,9 +245,19 @@ class ContactMatrixFacet(object):
                 exclude_hidden_contigs=exclude_hidden_contigs
             )
         else:
-            # return f.get_submatrix(resolution, x0, y0, 1 + x1, 1 + y1, units, exclude_hidden_contigs)
-            return f.get_submatrix(resolution, x0, y0, x1, y1, units, exclude_hidden_contigs)
+            # submatrix = f.get_submatrix(resolution, x0, y0, 1 + x1, 1 + y1, units, exclude_hidden_contigs)
+            submatrix = f.get_submatrix(resolution, x0, y0, x1, y1, units, exclude_hidden_contigs)
 
+        result: np.ndarray
+        if normalization == NormalizationType.LINEAR:
+            result = np.copy(submatrix)
+        if normalization == NormalizationType.LOG2:
+            result = np.log2(1 + submatrix)
+        elif normalization == NormalizationType.COOLER_BALANCE:
+            raise Exception("Not yet implemented")
+        
+        return submatrix
+        
     @staticmethod
     def reverse_selection_range(f: ChunkedFile, start_contig_id: np.int64, end_contig_id: np.int64) -> None:
         """
