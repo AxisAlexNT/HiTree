@@ -191,7 +191,7 @@ class ContactMatrixFacet(object):
             y1: np.int64,
             units: QueryLengthUnit = QueryLengthUnit.PIXELS,
             exclude_hidden_contigs: bool = True,
-            normalization: NormalizationType = NormalizationType.LINEAR
+            normalization_algo: NormalizationType = NormalizationType.LINEAR
     ) -> np.ndarray:
         """
         Fetches requested area from contact matrix in the given resolution.
@@ -242,20 +242,13 @@ class ContactMatrixFacet(object):
                 1 + x1_in_contig_px.global_position_px,
                 1 + y1_in_contig_px.global_position_px,
                 units,
-                exclude_hidden_contigs=exclude_hidden_contigs
+                exclude_hidden_contigs=exclude_hidden_contigs,
+                normalization_algo=normalization_algo
             )
         else:
             # submatrix = f.get_submatrix(resolution, x0, y0, 1 + x1, 1 + y1, units, exclude_hidden_contigs)
-            submatrix = f.get_submatrix(resolution, x0, y0, x1, y1, units, exclude_hidden_contigs)
+            submatrix = f.get_submatrix(resolution, x0, y0, x1, y1, units, exclude_hidden_contigs, normalization_algo)
 
-        result: np.ndarray
-        if normalization == NormalizationType.LINEAR:
-            result = np.copy(submatrix)
-        if normalization == NormalizationType.LOG2:
-            result = np.log2(1 + submatrix)
-        elif normalization == NormalizationType.COOLER_BALANCE:
-            raise Exception("Not yet implemented")
-        
         return submatrix
         
     @staticmethod

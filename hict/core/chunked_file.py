@@ -14,7 +14,7 @@ from scipy.sparse import coo_matrix
 
 from hict.core.AGPProcessor import *
 from hict.core.FASTAProcessor import FASTAProcessor
-from hict.core.common import StripeDescriptor, ContigDescriptor, ScaffoldDescriptor, ScaffoldBorders, \
+from hict.core.common import NormalizationType, StripeDescriptor, ContigDescriptor, ScaffoldDescriptor, ScaffoldBorders, \
     ScaffoldDirection, FinalizeRecordType, ContigHideType, QueryLengthUnit
 from hict.core.contig_tree import ContigTree
 from hict.core.scaffold_holder import ScaffoldHolder
@@ -310,6 +310,7 @@ class ChunkedFile(object):
         stripe_lengths_bins: h5py.Dataset = stripes_group['stripe_length_bins']
         stripe_lengths_bp: h5py.Dataset = stripes_group['stripe_length_bp']
         stripe_id_to_contig_id: h5py.Dataset = stripes_group['stripes_contig_id']
+        stripes_bin_weights: Optional[h5py.Dataset] = stripes_group['stripes_bin_weights'] if 'stripes_bin_weights' in stripes_group.keys() else None 
 
         stripe_tree = StripeTree(resolution)
 
@@ -318,7 +319,8 @@ class ChunkedFile(object):
                 stripe_id,
                 stripe_length_bins,
                 stripe_length_bp,
-                self.contig_tree.contig_id_to_node_in_tree[stripes_contig_id].contig_descriptor
+                self.contig_tree.contig_id_to_node_in_tree[stripes_contig_id].contig_descriptor,
+                np.array(stripes_bin_weights[stripe_id, :], dtype=np.float64) if stripes_bin_weights is not None else None
             ) for stripe_id, (
                 stripe_length_bins,
                 stripe_length_bp,
@@ -556,7 +558,8 @@ class ChunkedFile(object):
             end_row_excl: np.int64,
             end_col_excl: np.int64,
             units: QueryLengthUnit,
-            exclude_hidden_contigs: bool
+            exclude_hidden_contigs: bool,
+            normalization_algo: NormalizationType = NormalizationType.LINEAR
     ) -> np.ndarray:
         (
             dense_coverage_matrix,
@@ -573,7 +576,8 @@ class ChunkedFile(object):
             end_row_excl,
             end_col_excl,
             units,
-            exclude_hidden_contigs
+            exclude_hidden_contigs,
+            normalization_algo
         )
         submatrix: np.ndarray = dense_coverage_matrix[
                                 query_start_row_in_coverage_matrix:query_end_row_in_coverage_matrix,
@@ -589,7 +593,8 @@ class ChunkedFile(object):
             end_row_excl: np.int64,
             end_col_excl: np.int64,
             units: QueryLengthUnit,
-            exclude_hidden_contigs: bool
+            exclude_hidden_contigs: bool,
+            normalization_algo: NormalizationType = NormalizationType.LINEAR
     ) -> Tuple[np.ndarray, Tuple[np.int64, np.int64, np.int64, np.int64]]:
         if units == QueryLengthUnit.BASE_PAIRS:
             assert (
@@ -617,22 +622,37 @@ class ChunkedFile(object):
                 start_col_px_incl,
                 end_row_px_excl,
                 end_col_px_excl,
-                exclude_hidden_contigs
+                exclude_hidden_contigs,
+                normalization_algo
             )
         elif units == QueryLengthUnit.BINS:
             assert (
                     resolution != 0 and resolution != 1
             ), "Bins query should use actual resolution, not reserved 1:0 or 1:1"
             return self.get_coverage_matrix_pixels_internal(resolution, start_row_incl, start_col_incl, end_row_excl,
-                                                            end_col_excl, exclude_hidden_contigs)
+                                                            end_col_excl, exclude_hidden_contigs, normalization_algo)
         elif units == QueryLengthUnit.PIXELS:
             assert (
                     resolution != 0 and resolution != 1
             ), "Pixels query should use actual resolution, not reserved 1:0 or 1:1"
             return self.get_coverage_matrix_pixels_internal(resolution, start_row_incl, start_col_incl, end_row_excl,
-                                                            end_col_excl, exclude_hidden_contigs)
+                                                            end_col_excl, exclude_hidden_contigs, normalization_algo)
         else:
             raise Exception("Unknown length unit")
+        
+    def apply_cooler_balance_to_stripe_intersection(
+        self,
+        row_stripe: StripeDescriptor,
+        col_stripe: StripeDescriptor,
+        raw_intersection: np.ndarray,
+        inplace: bool = False
+    ) -> np.ndarray:
+        result: np.ndarray = raw_intersection if inplace else np.copy(raw_intersection)
+        if col_stripe.bin_weights is not None:
+            result = result * (col_stripe.bin_weights if col_stripe.contig_descriptor.direction == ContigDirection.FORWARD else np.flip(col_stripe.bin_weights))
+        if row_stripe.bin_weights is not None:
+            result = (result.T * (row_stripe.bin_weights if row_stripe.contig_descriptor.direction == ContigDirection.FORWARD else np.flip(row_stripe.bin_weights))).T
+        return result
 
     def get_coverage_matrix_pixels_internal(
             self,
@@ -641,7 +661,8 @@ class ChunkedFile(object):
             queried_start_col_px_incl: np.int64,
             queried_end_row_px_excl: np.int64,
             queried_end_col_px_excl: np.int64,
-            exclude_hidden_contigs: bool
+            exclude_hidden_contigs: bool,
+            normalization_algo: NormalizationType = NormalizationType.LINEAR
     ) -> Tuple[
         np.ndarray,
         Tuple[np.int64, np.int64, np.int64, np.int64]
@@ -728,12 +749,28 @@ class ChunkedFile(object):
                     col_stripe_start_in_dense: np.int64 = col_stripe_starts[col_stripe_index]
                     col_stripe_end_in_dense: np.int64 = col_stripe_starts[1 +
                                                                           col_stripe_index]
-                    dense_intersection: np.ndarray = self.get_block_intersection_as_dense_matrix(
+                    dense_intersection_raw: np.ndarray = self.get_block_intersection_as_dense_matrix(
                         f,
                         resolution,
                         row_stripe,
                         col_stripe
                     )
+                    
+                    dense_intersection: np.ndarray
+                    if normalization_algo == NormalizationType.LINEAR:
+                        dense_intersection = dense_intersection_raw
+                    elif normalization_algo == NormalizationType.LOG2:
+                        dense_intersection = np.log2(1 + dense_intersection_raw)
+                    elif normalization_algo == NormalizationType.LOG10:
+                        dense_intersection = np.log10(1 + dense_intersection_raw)
+                    elif normalization_algo == NormalizationType.COOLER_BALANCE:
+                        dense_intersection = self.apply_cooler_balance_to_stripe_intersection(
+                            row_stripe,
+                            col_stripe,
+                            dense_intersection_raw,
+                            inplace=True
+                        )
+                    
                     assert (
                             dense_intersection.shape ==
                             (

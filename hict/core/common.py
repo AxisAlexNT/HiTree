@@ -36,7 +36,8 @@ class ScaffoldBorders(RecordClass):
 class NormalizationType(Enum):
     LINEAR = 0
     LOG2 = 1
-    COOLER_BALANCE = 2
+    LOG10 = 2
+    COOLER_BALANCE = 3
 
 class ContigDescriptor(RecordClass):
     contig_id: np.int64
@@ -91,6 +92,7 @@ class StripeDescriptor(RecordClass):  # NamedTuple):
     stripe_length_bins: np.int64
     stripe_length_bp: np.int64
     contig_descriptor: ContigDescriptor
+    bin_weights: Optional[np.ndarray]
 
     @staticmethod
     def make_stripe_descriptor(
@@ -98,12 +100,14 @@ class StripeDescriptor(RecordClass):  # NamedTuple):
             stripe_length_bins: np.int64,
             stripe_length_bp: np.int64,
             contig_descriptor: ContigDescriptor,
+            bin_weights: Optional[np.ndarray] = None
     ) -> 'StripeDescriptor':
         return StripeDescriptor(
             stripe_id,
             stripe_length_bins,
             stripe_length_bp,
-            contig_descriptor
+            contig_descriptor,
+            bin_weights
         )
 
     def __eq__(self, o: object) -> bool:
