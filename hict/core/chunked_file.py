@@ -649,9 +649,11 @@ class ChunkedFile(object):
     ) -> np.ndarray:
         result: np.ndarray = raw_intersection if inplace else np.copy(raw_intersection)
         if col_stripe.bin_weights is not None:
-            result = result * (col_stripe.bin_weights if col_stripe.contig_descriptor.direction == ContigDirection.FORWARD else np.flip(col_stripe.bin_weights))
+            weights = col_stripe.bin_weights[:col_stripe.stripe_length_bins]
+            result = result * (weights if col_stripe.contig_descriptor.direction == ContigDirection.FORWARD else np.flip(weights))
         if row_stripe.bin_weights is not None:
-            result = (result.T * (row_stripe.bin_weights if row_stripe.contig_descriptor.direction == ContigDirection.FORWARD else np.flip(row_stripe.bin_weights))).T
+            weights = row_stripe.bin_weights[:row_stripe.stripe_length_bins]
+            result = (result.T * (weights if row_stripe.contig_descriptor.direction == ContigDirection.FORWARD else np.flip(weights))).T
         return result
 
     def get_coverage_matrix_pixels_internal(

@@ -1,0 +1,14 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../HiCT_Server"
+		},
+		{
+			"path": "../HiCT_Utils"
+		}
+	],
+	"settings": {}
+}
