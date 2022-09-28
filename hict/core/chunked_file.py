@@ -205,11 +205,11 @@ class ChunkedFile(object):
         scaffold_info_group: h5py.Group = f['/scaffold_info']
         scaffold_name_ds: h5py.Dataset = scaffold_info_group['scaffold_name']
 
-        scaffold_start_ds: h5py.Dataset = scaffold_info_group['scaffold_name']
-        scaffold_end_ds: h5py.Dataset = scaffold_info_group['scaffold_name']
+        scaffold_start_ds: h5py.Dataset = scaffold_info_group['scaffold_start']
+        scaffold_end_ds: h5py.Dataset = scaffold_info_group['scaffold_end']
 
-        scaffold_direction_ds: h5py.Dataset = scaffold_info_group['scaffold_name']
-        scaffold_spacer_ds: h5py.Dataset = scaffold_info_group['scaffold_name']
+        scaffold_direction_ds: h5py.Dataset = scaffold_info_group['scaffold_direction']
+        scaffold_spacer_ds: h5py.Dataset = scaffold_info_group['scaffold_spacer']
 
         for scaffold_id, (
                 scaffold_name,
@@ -230,7 +230,7 @@ class ChunkedFile(object):
             ), "Scaffold borders are existent/nonexistent separately??"
             scaffold_descriptor: ScaffoldDescriptor = ScaffoldDescriptor(
                 scaffold_id=scaffold_id,
-                scaffold_name=scaffold_name,
+                scaffold_name=bytes(scaffold_name).decode('utf-8'),
                 scaffold_borders=(
                     ScaffoldBorders(
                         scaffold_start_contig_id,
