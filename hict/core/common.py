@@ -32,12 +32,7 @@ class ContigHideType(Enum):
 class ScaffoldBorders(RecordClass):
     start_contig_id: np.int64
     end_contig_id: np.int64
-    
-class NormalizationType(Enum):
-    LINEAR = 0
-    LOG2 = 1
-    LOG10 = 2
-    COOLER_BALANCE = 3
+
 
 class ContigDescriptor(RecordClass):
     contig_id: np.int64
@@ -61,29 +56,31 @@ class ContigDescriptor(RecordClass):
             scaffold_id: Optional[np.int64] = None
     ) -> 'ContigDescriptor':
         assert (
-                0 not in contig_length_at_resolution.keys()
+            0 not in contig_length_at_resolution.keys()
         ), "There should be no resolution 1:0 as it is used internally to store contig length in base pairs"
-        contig_length_at_resolution = frozendict({**contig_length_at_resolution, **{np.int64(0): contig_length_bp}})
+        contig_length_at_resolution = frozendict(
+            {**contig_length_at_resolution, **{np.int64(0): contig_length_bp}})
         return ContigDescriptor(
             contig_id,
             contig_name,
             direction,
             contig_length_at_resolution,
             scaffold_id,
-            frozendict({**contig_presence_in_resolution, **{np.int64(0): ContigHideType.FORCED_SHOWN}})
+            frozendict({**contig_presence_in_resolution, **
+                       {np.int64(0): ContigHideType.FORCED_SHOWN}})
         )
 
     def __eq__(self, o: object) -> bool:
         if isinstance(o, ContigDescriptor):
             return (
-                       self.contig_id,
-                       self.direction,
-                       self.contig_length_at_resolution
-                   ) == (
-                       o.contig_id,
-                       o.direction,
-                       o.contig_length_at_resolution
-                   )
+                self.contig_id,
+                self.direction,
+                self.contig_length_at_resolution
+            ) == (
+                o.contig_id,
+                o.direction,
+                o.contig_length_at_resolution
+            )
         return False
 
 
@@ -113,16 +110,16 @@ class StripeDescriptor(RecordClass):  # NamedTuple):
     def __eq__(self, o: object) -> bool:
         if isinstance(o, StripeDescriptor):
             return (
-                       self.stripe_id,
-                       self.stripe_length_bins,
-                       self.stripe_length_bp,
-                       self.contig_descriptor,
-                   ) == (
-                       o.stripe_id,
-                       o.stripe_length_bins,
-                       o.stripe_length_bp,
-                       o.contig_descriptor,
-                   )
+                self.stripe_id,
+                self.stripe_length_bins,
+                self.stripe_length_bp,
+                self.contig_descriptor,
+            ) == (
+                o.stripe_id,
+                o.stripe_length_bins,
+                o.stripe_length_bp,
+                o.contig_descriptor,
+            )
         return False
 
 

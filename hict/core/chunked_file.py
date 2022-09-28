@@ -14,7 +14,7 @@ from scipy.sparse import coo_matrix
 
 from hict.core.AGPProcessor import *
 from hict.core.FASTAProcessor import FASTAProcessor
-from hict.core.common import NormalizationType, StripeDescriptor, ContigDescriptor, ScaffoldDescriptor, ScaffoldBorders, \
+from hict.core.common import StripeDescriptor, ContigDescriptor, ScaffoldDescriptor, ScaffoldBorders, \
     ScaffoldDirection, FinalizeRecordType, ContigHideType, QueryLengthUnit
 from hict.core.contig_tree import ContigTree
 from hict.core.scaffold_holder import ScaffoldHolder
@@ -122,7 +122,7 @@ class ChunkedFile(object):
                         contig_hide_type_at_resolution
                     )
 
-            contig_info_group: h5py.Group = f[f'/contig_info/']
+            contig_info_group: h5py.Group = f['/contig_info/']
             ordered_contig_ids: h5py.Dataset = contig_info_group['ordered_contig_ids']
             contig_direction_ds: h5py.Dataset = contig_info_group['contig_direction']
             contig_scaffold_ids: h5py.Dataset = contig_info_group['contig_scaffold_id']
@@ -226,7 +226,7 @@ class ChunkedFile(object):
         )):
             assert (
                 (scaffold_end_contig_id == -1) if (scaffold_start_contig_id == -
-                1) else (scaffold_end_contig_id != -1)
+                                                   1) else (scaffold_end_contig_id != -1)
             ), "Scaffold borders are existent/nonexistent separately??"
             scaffold_descriptor: ScaffoldDescriptor = ScaffoldDescriptor(
                 scaffold_id=scaffold_id,
@@ -251,7 +251,7 @@ class ChunkedFile(object):
         Dict[np.int64, np.ndarray],
         List[str]
     ]:
-        contig_info_group: h5py.Group = f[f'/contig_info/']
+        contig_info_group: h5py.Group = f['/contig_info/']
         contig_names_ds: h5py.Dataset = contig_info_group['contig_name']
         contig_lengths_bp: h5py.Dataset = contig_info_group['contig_length_bp']
 
@@ -310,7 +310,8 @@ class ChunkedFile(object):
         stripe_lengths_bins: h5py.Dataset = stripes_group['stripe_length_bins']
         stripe_lengths_bp: h5py.Dataset = stripes_group['stripe_length_bp']
         stripe_id_to_contig_id: h5py.Dataset = stripes_group['stripes_contig_id']
-        stripes_bin_weights: Optional[h5py.Dataset] = stripes_group['stripes_bin_weights'] if 'stripes_bin_weights' in stripes_group.keys() else None 
+        stripes_bin_weights: Optional[h5py.Dataset] = stripes_group[
+            'stripes_bin_weights'] if 'stripes_bin_weights' in stripes_group.keys() else None
 
         stripe_tree = StripeTree(resolution)
 
@@ -320,7 +321,10 @@ class ChunkedFile(object):
                 stripe_length_bins,
                 stripe_length_bp,
                 self.contig_tree.contig_id_to_node_in_tree[stripes_contig_id].contig_descriptor,
-                np.array(stripes_bin_weights[stripe_id, :], dtype=np.float64) if stripes_bin_weights is not None else None
+                np.array(
+                    stripes_bin_weights[stripe_id, :stripe_length_bins],
+                    dtype=np.float64
+                ) if stripes_bin_weights is not None else np.ones(stripe_length_bins, dtype=np.float64)
             ) for stripe_id, (
                 stripe_length_bins,
                 stripe_length_bp,
@@ -366,7 +370,7 @@ class ChunkedFile(object):
             )
             contig_segment_end_bins = first_segment_contig_start_bins + (
                 exposed_contig_segment.segment.get_sizes()[0][resolution] if (
-                        exposed_contig_segment.segment is not None
+                    exposed_contig_segment.segment is not None
                 ) else 0
             )
             if exposed_contig_segment.segment is None:
@@ -413,8 +417,8 @@ class ChunkedFile(object):
             assert start_px_incl >= first_segment_contig_start_px, "Contig starts after its covered query?"
 
             delta_in_px_between_left_query_border_and_stripe_start: np.int64 = (
-                    start_px_incl - first_segment_contig_start_px +
-                    first_stripe_start_bins - first_segment_contig_start_bins
+                start_px_incl - first_segment_contig_start_px +
+                first_stripe_start_bins - first_segment_contig_start_bins
             )
 
             query_length: np.int64 = end_px_excl - start_px_incl
@@ -559,10 +563,10 @@ class ChunkedFile(object):
             end_col_excl: np.int64,
             units: QueryLengthUnit,
             exclude_hidden_contigs: bool,
-            normalization_algo: NormalizationType = NormalizationType.LINEAR
-    ) -> np.ndarray:
+            fetch_cooler_weights: bool
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         (
-            dense_coverage_matrix,
+            dense_coverage_matrix, coverage_row_weights, coverage_col_weights,
             (
                 query_start_row_in_coverage_matrix,
                 query_start_col_in_coverage_matrix,
@@ -577,13 +581,18 @@ class ChunkedFile(object):
             end_col_excl,
             units,
             exclude_hidden_contigs,
-            normalization_algo
+            fetch_cooler_weights
         )
         submatrix: np.ndarray = dense_coverage_matrix[
-                                query_start_row_in_coverage_matrix:query_end_row_in_coverage_matrix,
-                                query_start_col_in_coverage_matrix:query_end_col_in_coverage_matrix
-                                ]
-        return submatrix
+            query_start_row_in_coverage_matrix:query_end_row_in_coverage_matrix,
+            query_start_col_in_coverage_matrix:query_end_col_in_coverage_matrix
+        ]
+        row_weights: np.ndarray = coverage_row_weights[
+            query_start_row_in_coverage_matrix:query_end_row_in_coverage_matrix]
+        col_weights: np.ndarray = coverage_col_weights[
+            query_start_col_in_coverage_matrix:query_end_col_in_coverage_matrix]
+
+        return submatrix, row_weights, col_weights
 
     def get_coverage_matrix(
             self,
@@ -594,27 +603,27 @@ class ChunkedFile(object):
             end_col_excl: np.int64,
             units: QueryLengthUnit,
             exclude_hidden_contigs: bool,
-            normalization_algo: NormalizationType = NormalizationType.LINEAR
-    ) -> Tuple[np.ndarray, Tuple[np.int64, np.int64, np.int64, np.int64]]:
+            fetch_cooler_weights: bool
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Tuple[np.int64, np.int64, np.int64, np.int64]]:
         if units == QueryLengthUnit.BASE_PAIRS:
             assert (
-                    resolution == 0 or resolution == 1
+                resolution == 0 or resolution == 1
             ), "Base pairs have resolution 1:1 and are stored as 1:0"
             es_row: ContigTree.ExposedSegment = self.contig_tree.expose_segment_by_length(
                 start_row_incl, end_row_excl - 1, 0)
             start_row_px_incl = es_row.less.get_sizes(
             )[2][resolution] if es_row.less is not None else 0  # + 1
             end_row_px_excl = start_row_px_incl + \
-                              es_row.segment.get_sizes(
-                              )[2][resolution] if es_row.segment is not None else 0
+                es_row.segment.get_sizes(
+                )[2][resolution] if es_row.segment is not None else 0
             self.contig_tree.commit_exposed_segment(es_row)
             es_col: ContigTree.ExposedSegment = self.contig_tree.expose_segment_by_length(
                 start_col_incl, end_col_excl - 1, 0)
             start_col_px_incl = es_col.less.get_sizes(
             )[2][resolution] if es_col.less is not None else 0  # + 1
             end_col_px_excl = start_col_px_incl + \
-                              es_col.segment.get_sizes(
-                              )[2][resolution] if es_col.segment is not None else 0
+                es_col.segment.get_sizes(
+                )[2][resolution] if es_col.segment is not None else 0
             self.contig_tree.commit_exposed_segment(es_col)
             return self.get_coverage_matrix_pixels_internal(
                 resolution,
@@ -623,38 +632,22 @@ class ChunkedFile(object):
                 end_row_px_excl,
                 end_col_px_excl,
                 exclude_hidden_contigs,
-                normalization_algo
+                fetch_cooler_weights
             )
         elif units == QueryLengthUnit.BINS:
             assert (
-                    resolution != 0 and resolution != 1
+                resolution != 0 and resolution != 1
             ), "Bins query should use actual resolution, not reserved 1:0 or 1:1"
             return self.get_coverage_matrix_pixels_internal(resolution, start_row_incl, start_col_incl, end_row_excl,
-                                                            end_col_excl, exclude_hidden_contigs, normalization_algo)
+                                                            end_col_excl, exclude_hidden_contigs, fetch_cooler_weights)
         elif units == QueryLengthUnit.PIXELS:
             assert (
-                    resolution != 0 and resolution != 1
+                resolution != 0 and resolution != 1
             ), "Pixels query should use actual resolution, not reserved 1:0 or 1:1"
             return self.get_coverage_matrix_pixels_internal(resolution, start_row_incl, start_col_incl, end_row_excl,
-                                                            end_col_excl, exclude_hidden_contigs, normalization_algo)
+                                                            end_col_excl, exclude_hidden_contigs, fetch_cooler_weights)
         else:
             raise Exception("Unknown length unit")
-        
-    def apply_cooler_balance_to_stripe_intersection(
-        self,
-        row_stripe: StripeDescriptor,
-        col_stripe: StripeDescriptor,
-        raw_intersection: np.ndarray,
-        inplace: bool = False
-    ) -> np.ndarray:
-        result: np.ndarray = raw_intersection if inplace else np.copy(raw_intersection)
-        if col_stripe.bin_weights is not None:
-            weights = col_stripe.bin_weights[:col_stripe.stripe_length_bins]
-            result = result * (weights if col_stripe.contig_descriptor.direction == ContigDirection.FORWARD else np.flip(weights))
-        if row_stripe.bin_weights is not None:
-            weights = row_stripe.bin_weights[:row_stripe.stripe_length_bins]
-            result = (result.T * (weights if row_stripe.contig_descriptor.direction == ContigDirection.FORWARD else np.flip(weights))).T
-        return result
 
     def get_coverage_matrix_pixels_internal(
             self,
@@ -664,8 +657,10 @@ class ChunkedFile(object):
             queried_end_row_px_excl: np.int64,
             queried_end_col_px_excl: np.int64,
             exclude_hidden_contigs: bool,
-            normalization_algo: NormalizationType = NormalizationType.LINEAR
+            fetch_cooler_weights: bool
     ) -> Tuple[
+        np.ndarray,
+        np.ndarray,
         np.ndarray,
         Tuple[np.int64, np.int64, np.int64, np.int64]
     ]:
@@ -716,14 +711,22 @@ class ChunkedFile(object):
         )
 
         row_stripe_lengths: np.ndarray = np.array(
-            [row_stripe.stripe_length_bins for row_stripe in row_stripes], dtype=np.int64)
+            [row_stripe.stripe_length_bins for row_stripe in row_stripes],
+            dtype=np.int64
+        )
         col_stripe_lengths: np.ndarray = np.array(
-            [col_stripe.stripe_length_bins for col_stripe in col_stripes], dtype=np.int64)
+            [col_stripe.stripe_length_bins for col_stripe in col_stripes],
+            dtype=np.int64
+        )
 
         row_stripe_starts: np.ndarray = np.hstack(
-            (np.zeros(shape=(1,), dtype=np.int64), np.cumsum(row_stripe_lengths)))
+            (np.zeros(shape=(1,), dtype=np.int64),
+             np.cumsum(row_stripe_lengths))
+        )
         col_stripe_starts: np.ndarray = np.hstack(
-            (np.zeros(shape=(1,), dtype=np.int64), np.cumsum(col_stripe_lengths)))
+            (np.zeros(shape=(1,), dtype=np.int64),
+             np.cumsum(col_stripe_lengths))
+        )
 
         row_total_stripe_length: np.int64 = row_stripe_starts[-1]
         col_total_stripe_length: np.int64 = col_stripe_starts[-1]
@@ -751,38 +754,23 @@ class ChunkedFile(object):
                     col_stripe_start_in_dense: np.int64 = col_stripe_starts[col_stripe_index]
                     col_stripe_end_in_dense: np.int64 = col_stripe_starts[1 +
                                                                           col_stripe_index]
-                    dense_intersection_raw: np.ndarray = self.get_block_intersection_as_dense_matrix(
+                    dense_intersection: np.ndarray = self.get_block_intersection_as_dense_matrix(
                         f,
                         resolution,
                         row_stripe,
                         col_stripe
                     )
-                    
-                    dense_intersection: np.ndarray
-                    if normalization_algo == NormalizationType.LINEAR:
-                        dense_intersection = dense_intersection_raw
-                    elif normalization_algo == NormalizationType.LOG2:
-                        dense_intersection = np.log2(1 + dense_intersection_raw)
-                    elif normalization_algo == NormalizationType.LOG10:
-                        dense_intersection = np.log10(1 + dense_intersection_raw)
-                    elif normalization_algo == NormalizationType.COOLER_BALANCE:
-                        dense_intersection = self.apply_cooler_balance_to_stripe_intersection(
-                            row_stripe,
-                            col_stripe,
-                            dense_intersection_raw,
-                            inplace=True
-                        )
-                    
+
                     assert (
-                            dense_intersection.shape ==
-                            (
-                                row_stripe_end_in_dense - row_stripe_start_in_dense,
-                                col_stripe_end_in_dense - col_stripe_start_in_dense
-                            )
+                        dense_intersection.shape ==
+                        (
+                            row_stripe_end_in_dense - row_stripe_start_in_dense,
+                            col_stripe_end_in_dense - col_stripe_start_in_dense
+                        )
                     ), "Wrong shape of dense block intersection matrix"
                     dense_coverage_matrix[
-                    row_stripe_start_in_dense:row_stripe_end_in_dense,
-                    col_stripe_start_in_dense:col_stripe_end_in_dense
+                        row_stripe_start_in_dense:row_stripe_end_in_dense,
+                        col_stripe_start_in_dense:col_stripe_end_in_dense
                     ] = dense_intersection
 
         query_start_row_in_coverage_matrix_incl: np.int64 = row_delta_in_px_between_left_query_border_and_stripe_start
@@ -800,8 +788,37 @@ class ChunkedFile(object):
         #         dense_coverage_matrix.shape[1] >= query_end_col_in_coverage_matrix_excl
         # ), "Coverage matrix does not cover the whole query??"
 
+        coverage_row_weights: np.ndarray
+        coverage_col_weights: np.ndarray
+        if fetch_cooler_weights:
+            coverage_row_weights = np.ones(0, dtype=np.float64)
+            coverage_col_weights = np.ones(0, dtype=np.float64)
+            for row_stripe in row_stripes:
+                row_weights = (
+                    row_stripe.bin_weights
+                    if (
+                        row_stripe.contig_descriptor.direction == ContigDirection.REVERSED
+                    ) else np.flip(row_stripe.bin_weights)
+                )
+                coverage_row_weights = np.hstack(
+                    (coverage_row_weights, row_weights))
+            for col_stripe in col_stripes:
+                col_weights = (
+                    col_stripe.bin_weights
+                    if (
+                        col_stripe.contig_descriptor.direction == ContigDirection.REVERSED
+                    ) else np.flip(col_stripe.bin_weights)
+                )
+                coverage_col_weights = np.hstack(
+                    (coverage_col_weights, col_weights))
+        else:
+            coverage_row_weights = np.ones(query_length_rows, dtype=np.float64)
+            coverage_col_weights = np.ones(query_length_cols, dtype=np.float64)
+
         return (
             dense_coverage_matrix,
+            coverage_row_weights,
+            coverage_col_weights,
             (
                 query_start_row_in_coverage_matrix_incl,
                 query_start_col_in_coverage_matrix_incl,
@@ -1058,39 +1075,39 @@ class ChunkedFile(object):
             next_contig_node)
 
         scaffold_starts_at_target: bool = (
-                (target_contig_scaffold is not None)
-                and
-                (
-                        (previous_contig_scaffold is None)
-                        or
-                        (previous_contig_scaffold.scaffold_id !=
-                         target_contig_scaffold.scaffold_id)
-                )
+            (target_contig_scaffold is not None)
+            and
+            (
+                (previous_contig_scaffold is None)
+                or
+                (previous_contig_scaffold.scaffold_id !=
+                 target_contig_scaffold.scaffold_id)
+            )
         )
 
         internal_scaffold_contig: bool = (
-                (
-                        (previous_contig_scaffold is not None)
-                        and
-                        (target_contig_scaffold is not None)
-                        and (next_contig_scaffold is not None)
-                )
+            (
+                (previous_contig_scaffold is not None)
                 and
-                (
-                        previous_contig_scaffold.scaffold_id
-                        == target_contig_scaffold.scaffold_id
-                        == next_contig_scaffold.scaffold_id
-                )
+                (target_contig_scaffold is not None)
+                and (next_contig_scaffold is not None)
+            )
+            and
+            (
+                previous_contig_scaffold.scaffold_id
+                == target_contig_scaffold.scaffold_id
+                == next_contig_scaffold.scaffold_id
+            )
         )
         scaffold_ends_at_target: bool = (
-                (target_contig_scaffold is not None)
-                and
-                (
-                        (next_contig_scaffold is None)
-                        or
-                        (target_contig_scaffold.scaffold_id !=
-                         next_contig_scaffold.scaffold_id)
-                )
+            (target_contig_scaffold is not None)
+            and
+            (
+                (next_contig_scaffold is None)
+                or
+                (target_contig_scaffold.scaffold_id !=
+                 next_contig_scaffold.scaffold_id)
+            )
         )
 
         return (
@@ -1131,11 +1148,11 @@ class ChunkedFile(object):
                 start_scaffold_id: Optional[np.int64] = start_contig_descriptor.scaffold_id
                 end_scaffold_id: Optional[np.int64] = end_contig_descriptor.scaffold_id
                 assert (
-                        (
-                                start_scaffold_id == scaffold_id and end_scaffold_id == scaffold_id
-                        ) or (
-                                start_scaffold_id != scaffold_id and end_scaffold_id != scaffold_id
-                        )
+                    (
+                        start_scaffold_id == scaffold_id and end_scaffold_id == scaffold_id
+                    ) or (
+                        start_scaffold_id != scaffold_id and end_scaffold_id != scaffold_id
+                    )
                 ), f"Only one bordering contig belongs to the scaffold with id={scaffold_id}?"
                 if (start_scaffold_id == scaffold_id) and (end_scaffold_id == scaffold_id):
                     return scaffold_descriptor
@@ -1519,7 +1536,7 @@ class ChunkedFile(object):
             contig_scaffold_id_backup[:] = contig_scaffold_id[:]
             for resolution in self.resolutions:
                 resolution_to_contig_hide_type[resolution][:
-                ] = resolution_to_contig_hide_type_backup[resolution][:]
+                                                           ] = resolution_to_contig_hide_type_backup[resolution][:]
             contig_info_group.attrs['contig_backup_done'] = True
 
         ordered_contig_ids_list: List[np.int64] = []
@@ -1527,7 +1544,7 @@ class ChunkedFile(object):
             shape=(contig_count,), dtype=np.int8)
         # ContigId -> [Resolution -> ContigHideType]
         contig_hide_types: List[Dict[np.int64, ContigHideType]] = [
-                                                                      None] * contig_count
+            None] * contig_count
         contig_old_scaffold_id: np.ndarray = np.zeros(
             shape=(contig_count,), dtype=np.int64)
         used_scaffold_ids: Set[np.int64] = set()
@@ -1567,7 +1584,7 @@ class ChunkedFile(object):
                 contig_id_to_contig_hide_type_at_resolution[
                     contig_id] = contig_presence_in_resolution[resolution].value
             resolution_to_contig_hide_type[resolution][:
-            ] = contig_id_to_contig_hide_type_at_resolution[:]
+                                                       ] = contig_id_to_contig_hide_type_at_resolution[:]
 
         contig_info_group.attrs['contig_write_finished'] = True
 
@@ -1748,7 +1765,7 @@ class ChunkedFile(object):
                         last_scaffold_id = ordered_finalization_records[-1][1][-1].scaffold_id
                     if contig_descriptor.scaffold_id is not None and contig_descriptor.scaffold_id == last_scaffold_id:
                         assert (
-                                ordered_finalization_records[-1][0] == FinalizeRecordType.SCAFFOLD
+                            ordered_finalization_records[-1][0] == FinalizeRecordType.SCAFFOLD
                         ), "Last contig descriptor has a scaffold_id but marked as out-of-scaffold?"
                         ordered_finalization_records[-1][1].append(
                             contig_descriptor)
@@ -1813,7 +1830,8 @@ class ChunkedFile(object):
             )
             _, start_order = self.contig_tree.get_contig_order(start_contig_id)
             _, end_order = self.contig_tree.get_contig_order(end_contig_id)
-            es: ContigTree.ExposedSegment = self.contig_tree.expose_segment_by_count(start_order, end_order)
+            es: ContigTree.ExposedSegment = self.contig_tree.expose_segment_by_count(
+                start_order, end_order)
             es.segment.contig_descriptor.scaffold_id = sd.scaffold_id
             es.segment.needs_updating_scaffold_id_in_subtree = True
             self.contig_tree.commit_exposed_segment(es)
@@ -1845,7 +1863,7 @@ class ChunkedFile(object):
             descriptors[-1].contig_id)
 
         start_offset_bp: np.int64 = from_bp_incl - \
-                                    start_contig_location_in_resolutions[0][0]
+            start_contig_location_in_resolutions[0][0]
         end_offset_bp: np.int64 = end_contig_location_in_resolutions[0][1] - to_bp_incl
 
         return (
