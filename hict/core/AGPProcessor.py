@@ -1,5 +1,5 @@
 from typing import Tuple, List, Dict, Optional
-from hict.core.common import ContigDirection
+from hict.core.common import ContigDescriptor, ContigDirection, ScaffoldDescriptor
 from typing import NamedTuple, List
 
 
@@ -74,3 +74,12 @@ class AGPparser(object):
     
     def getAGPScaffoldRecords(self) -> List[AGPScaffoldRecord]:
         return self.scaffold_records_list
+    
+class AGPExporter(object):
+    
+    def __init__(self, filename: str):
+        self.filename: str = filename
+        
+    def export_assembly(ordered_contig_descriptors: List[ContigDescriptor], scaffold_table: Dict[int, ScaffoldDescriptor]): 
+        # TODO
+        pass
