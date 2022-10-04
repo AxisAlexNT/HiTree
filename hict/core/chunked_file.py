@@ -312,7 +312,7 @@ class ChunkedFile(object):
         stripe_id_to_contig_id: h5py.Dataset = stripes_group['stripes_contig_id']
         stripes_bin_weights: Optional[h5py.Dataset] = stripes_group[
             'stripes_bin_weights'] if 'stripes_bin_weights' in stripes_group.keys() else None
-        
+
         stripe_tree = StripeTree(resolution)
 
         stripe_descriptors: List[StripeDescriptor] = [
@@ -322,7 +322,8 @@ class ChunkedFile(object):
                 stripe_length_bp,
                 self.contig_tree.contig_id_to_node_in_tree[stripes_contig_id].contig_descriptor,
                 np.array(
-                    np.nan_to_num(stripes_bin_weights[stripe_id, :stripe_length_bins], copy=False),
+                    np.nan_to_num(
+                        stripes_bin_weights[stripe_id, :stripe_length_bins], copy=False),
                     dtype=np.float64
                 ) if stripes_bin_weights is not None else np.ones(stripe_length_bins, dtype=np.float64)
             ) for stripe_id, (
@@ -1835,6 +1836,22 @@ class ChunkedFile(object):
             es.segment.contig_descriptor.scaffold_id = sd.scaffold_id
             es.segment.needs_updating_scaffold_id_in_subtree = True
             self.contig_tree.commit_exposed_segment(es)
+
+    def get_agp_for_assembly(self, writable_stream) -> None:
+        agp_export_processor: AGPExporter = AGPExporter()
+
+        ordered_contig_descriptors: List[ContigDescriptor] = []
+
+        def traverse_fn(node: ContigTree.Node) -> None:
+            ordered_contig_descriptors.append(node.contig_descriptor)
+
+        self.contig_tree.traverse(traverse_fn)
+
+        agp_export_processor.export_assembly(
+            writable_stream,
+            ordered_contig_descriptors,
+            self.scaffold_holder.scaffold_table
+        )
 
     def get_contig_descriptors_in_range(
             self,
