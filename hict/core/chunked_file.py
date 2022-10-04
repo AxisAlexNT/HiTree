@@ -1847,7 +1847,7 @@ class ChunkedFile(object):
 
         self.contig_tree.traverse(traverse_fn)
 
-        agp_export_processor.export_assembly(
+        agp_export_processor.exportAGP(
             writable_stream,
             ordered_contig_descriptors,
             self.scaffold_holder.scaffold_table
