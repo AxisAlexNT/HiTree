@@ -1,3 +1,5 @@
+from codecs import _WritableStream
+from locale import currency
 from typing import Tuple, List, Dict, Optional, Union
 from hict.core.common import ContigDescriptor, ContigDirection, ScaffoldDescriptor
 from typing import NamedTuple, List
@@ -85,14 +87,37 @@ class AGPparser(object):
 
 class AGPExporter(object):
 
-    def export_assembly(
+    def exportAGP(
         self,
         writableStream,
         ordered_contig_descriptors: List[ContigDescriptor],
-        scaffold_table: Dict[np.int64, ScaffoldDescriptor]        
+        scaffold_table: Dict[np.int64, ScaffoldDescriptor],
+        intercontig_spacer: str = 500*'N'        
     ) -> None:
-        # fixme
-        # TODO: Write implementation. Notice that strings should be written into the stream with decode(str, encoding='utf-8)!
-        some_string: str = ">AAAAA 211"
-        writableStream.write(some_string.encode(encoding='utf-8'))
-    
+        agpString: str = ""
+        prev_scaffold: str = ""
+        prev_end: np.int64 = 0
+        for contig in ordered_contig_descriptors:
+            current_scaffold: str = scaffold_table[contig.scaffold_id]
+            contig_name: str = contig.contig_name
+            contig_length: np.int64 = contig.contig_length_at_resolution[np.int64(0)]
+            dir_cond: bool = contig.direction == ContigDirection.FORWARD
+            contig_direction = "+" if dir_cond else "-"
+            if current_scaffold == prev_scaffold:
+                agpString += "\t".join([current_scaffold,
+                                        prev_end + 1,
+                                        prev_end + intercontig_spacer,
+                                        "N", intercontig_spacer,
+                                        "scaffold", "yes",
+                                        "proximity_ligation"])
+                prev_end = prev_end + intercontig_spacer - 1    
+            agpString += "\t".join([current_scaffold,
+                                    prev_end + 1,
+                                    prev_end + contig_length - 1,
+                                    "W", contig_name,
+                                    1, contig_length,
+                                    contig_direction])
+            prev_end = prev_end + contig_length - 1
+            prev_scaffold = current_scaffold
+        out_record: bytes = agpString.encode(encoding='utf-8')
+        writableStream.write(out_record)
