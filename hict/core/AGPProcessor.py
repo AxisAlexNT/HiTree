@@ -1,4 +1,3 @@
-from codecs import _WritableStream
 from locale import currency
 from typing import Tuple, List, Dict, Optional, Union
 from hict.core.common import ContigDescriptor, ContigDirection, ScaffoldDescriptor
