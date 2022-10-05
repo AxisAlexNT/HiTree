@@ -96,31 +96,39 @@ class AGPExporter(object):
         agpString: str = ""
         prev_scaffold: str = ""
         prev_end: np.int64 = 0
+        component_id: int = 1
         for contig in ordered_contig_descriptors:
             current_scaffold: str = scaffold_table[
                 contig.scaffold_id].scaffold_name if contig.scaffold_id is not None else f"unscaffold_{contig.contig_name}"
             contig_name: str = contig.contig_name
-            contig_length: np.int64 = contig.contig_length_at_resolution[np.int64(
-                0)]
+            contig_length: np.int64 = contig.contig_length_at_resolution[np.int64(0)]
             dir_cond: bool = contig.direction == ContigDirection.FORWARD
             contig_direction = "+" if dir_cond else "-"
             if current_scaffold == prev_scaffold:
-                agpString += "\t".join([current_scaffold,
+                component_id += 1
+                agpString += "\t".join(map(str, [current_scaffold,
                                         prev_end + 1,
-                                        prev_end + intercontig_spacer,
-                                        "N", intercontig_spacer,
+                                        prev_end + len(intercontig_spacer),
+                                        component_id,
+                                        "N", len(intercontig_spacer),
                                         "scaffold", "yes",
-                                        "proximity_ligation"])
-                prev_end = prev_end + intercontig_spacer - 1
+                                        "proximity_ligation"]))
+                prev_end = prev_end + len(intercontig_spacer) - 1
+                agpString += '\n'
+                component_id += 1
+            else:
+                component_id = 1
             agpString += "\t".join(
                 map(lambda e: str(e),
                     (current_scaffold,
                      prev_end + 1,
                      prev_end + contig_length - 1,
+                     component_id,
                      "W", contig_name,
                      1, contig_length,
                      contig_direction)))
             prev_end = prev_end + contig_length - 1
             prev_scaffold = current_scaffold
+            agpString += '\n'
         out_record: bytes = agpString.encode(encoding='utf-8')
         writableStream.write(out_record)
