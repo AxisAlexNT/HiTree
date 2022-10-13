@@ -1,4 +1,3 @@
-from re import S
 from typing import Tuple, List, Dict, Optional
 
 import numpy as np

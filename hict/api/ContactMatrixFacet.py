@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Tuple
 import copy
 from pathlib import Path
 from typing import NamedTuple, Optional
@@ -190,8 +190,9 @@ class ContactMatrixFacet(object):
             x1: np.int64,
             y1: np.int64,
             units: QueryLengthUnit = QueryLengthUnit.PIXELS,
-            exclude_hidden_contigs: bool = True
-    ) -> np.ndarray:
+            exclude_hidden_contigs: bool = True,
+            fetch_cooler_weights: bool = False,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Fetches requested area from contact matrix in the given resolution.
 
@@ -202,7 +203,8 @@ class ContactMatrixFacet(object):
         :param x1: End column of query expressed in given units (exclusive).
         :param y1: End row of query expressed in given units (exclusive).
         :param units: Either QueryLengthUnit.PIXELS (0-indexed) or QueryLengthUnit.BASE_PAIRS (1-indexed). In both cases borders are inclusive.
-        :return: Dense 2D numpy array which contains contact map submatrix for the given region.
+        :param fetch_cooler_weights: Whether to fetch cooler balance bin weights. If False or no weights were present in file, returned weights are all ones. 
+        :return: A tuple of (M, w_r, w_c) where M is dense 2D numpy array which contains contact map submatrix for the given region, w_r is row bin weights and w_c is column bin weights.
         """
         # x0 = max(0, x0)
         # x1 = max(0, x1)
@@ -216,6 +218,7 @@ class ContactMatrixFacet(object):
 
         if resolution not in f.resolutions:
             raise ContactMatrixFacet.IncorrectResolution()
+        submatrix: np.ndarray
         if units == QueryLengthUnit.BASE_PAIRS:
             # (x|y)(0|1)_bp -> (x|y)(0|1)_px using 1:1 "resolution" to find start and ending contigs
             # In start contig, find which bin (pixel) this query falls into,
@@ -232,19 +235,40 @@ class ContactMatrixFacet(object):
             y1_in_contig_px = ContactMatrixFacet.get_px_by_bp(
                 f, y1, resolution)
 
-            # Return dense submatrix:
-            return f.get_submatrix(
+            submatrix = f.get_submatrix(
                 resolution,
                 x0_in_contig_px.global_position_px,
                 y0_in_contig_px.global_position_px,
                 1 + x1_in_contig_px.global_position_px,
                 1 + y1_in_contig_px.global_position_px,
                 units,
-                exclude_hidden_contigs=exclude_hidden_contigs
+                exclude_hidden_contigs=exclude_hidden_contigs,
+                fetch_cooler_weights=fetch_cooler_weights
             )
         else:
-            # return f.get_submatrix(resolution, x0, y0, 1 + x1, 1 + y1, units, exclude_hidden_contigs)
-            return f.get_submatrix(resolution, x0, y0, x1, y1, units, exclude_hidden_contigs)
+            # submatrix = f.get_submatrix(resolution, x0, y0, 1 + x1, 1 + y1, units, exclude_hidden_contigs)
+            submatrix = f.get_submatrix(
+                resolution,
+                x0, y0,
+                x1, y1,
+                units,
+                exclude_hidden_contigs,
+                fetch_cooler_weights
+            )
+
+        return submatrix
+
+    @staticmethod
+    def apply_cooler_balance_to_dense_matrix(
+        dense_matrix: np.ndarray,
+        row_weights: np.ndarray,
+        col_weights: np.ndarray,
+        inplace: bool = False
+    ) -> np.ndarray:
+        result: np.ndarray = dense_matrix if inplace else np.copy(dense_matrix)
+        result = result * col_weights
+        result = (result.T * row_weights).T
+        return result
 
     @staticmethod
     def reverse_selection_range(f: ChunkedFile, start_contig_id: np.int64, end_contig_id: np.int64) -> None:

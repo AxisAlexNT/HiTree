@@ -33,7 +33,17 @@
             "args": [
                 ".\tests\test_ReverseTrees.py",
                 "-x",
-                "-n4"
+                "-n2"
+            ],
+            "justMyCode": true
+        },{
+            "name": "HiCT PyTest Stripe Tree",
+            "type": "python",
+            "request": "launch",
+            "module": "pytest",
+            "args": [
+                "-x",
+                ".\tests\test_StripeTreeSplitMergeProperties.py",                
             ],
             "justMyCode": true
         },
