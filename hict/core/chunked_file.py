@@ -986,11 +986,6 @@ class ChunkedFile(object):
             (start_bins, end_bins) = (
                 borders_bins_start[resolution][0], borders_bins_end[resolution][1])
             mt.move_stripes(1+start_bins, end_bins, leftLength[resolution])
-            # (ls, sg, gr) = mt.expose_segment(1 + start_bins, end_bins)
-            # tmp = StripeTree.merge_nodes(ls, gr)
-            # l, r = mt.split_node_by_length(
-            #     tmp, leftLength[resolution], include_equal_to_the_left=True)
-            # mt.commit_exposed_segment(StripeTree.ExposedSegment(l, sg, r))
         self.clear_caches()
 
     def get_contig_location(self, contig_id: np.int64) -> Tuple[
@@ -1300,18 +1295,6 @@ class ChunkedFile(object):
             (start_bins, end_bins) = (
                 borders_bins_start[resolution][0], borders_bins_end[resolution][1])
             mt.move_stripes(1+start_bins, end_bins, ct_new_less_length[resolution])
-            # (mt_less, mt_segment, mt_greater) = mt.expose_segment(
-            #     1 + start_bins, end_bins)
-
-            # mt_intermediate = mt.merge_nodes(mt_less, mt_greater)
-            # (mt_new_less, mt_new_greater) = mt.split_node_by_length(
-            #     mt_intermediate,
-            #     ct_new_less_length[resolution],
-            #     True
-            # )
-
-            # mt_new_less_with_segment = mt.merge_nodes(mt_new_less, mt_segment)
-            # mt.root = mt.merge_nodes(mt_new_less_with_segment, mt_new_greater)
         self.clear_caches()
 
     def group_contigs_into_scaffold(self, queried_start_contig_id: np.int64, queried_end_contig_id: np.int64,
