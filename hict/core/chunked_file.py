@@ -400,15 +400,6 @@ class ChunkedFile(object):
             if len(stripes) == 0:
                 return 0, []
 
-            start_contig_id = stripes[0].contig_descriptor.contig_id
-
-            # (
-            #     _,
-            #     start_contig_location_in_resolutions,
-            #     start_contig_location_in_resolutions_excluding_hidden,
-            #     start_contig_ord
-            # ) = self.contig_tree.get_contig_location(start_contig_id)
-
             assert start_px_incl >= first_segment_contig_start_px, "Contig starts after its covered query?"
 
             delta_in_px_between_left_query_border_and_stripe_start: np.int64 = (
@@ -428,26 +419,21 @@ class ChunkedFile(object):
             contig_segment_end_bins: np.int64 = end_px_excl
 
             stripe_tree: StripeTree = self.matrix_trees[resolution]
-            # 1+start because (start) bins should not be touched to the left of the query
-            exposed_stripe_segment: StripeTree.ExposedSegment = stripe_tree.expose_segment(
-                1 + first_segment_contig_start_bins, contig_segment_end_bins)
-            if exposed_stripe_segment.segment is None:
-                stripe_tree.commit_exposed_segment(exposed_stripe_segment)
+            # 1+start because (start) bins should not be touched to the left of the query            
+            stripes_in_range = stripe_tree.get_stripes_in_segment(
+                1 + first_segment_contig_start_bins,
+                contig_segment_end_bins
+            )
+
+            stripes: List[StripeDescriptor] = stripes_in_range.stripes
+
+            if len(stripes) == 0:
                 return 0, []
-
-            delta_in_px_between_left_query_border_and_stripe_start: np.int64 = first_segment_contig_start_bins - (
-                exposed_stripe_segment.less.get_sizes().length_bins
-            ) if exposed_stripe_segment.less is not None else 0
-
-            stripes: List[StripeDescriptor] = []
-
-            def traverse_fn(node: StripeTree.Node):
-                stripes.append(node.stripe_descriptor)
-
-            StripeTree.traverse_node(
-                exposed_stripe_segment.segment, traverse_fn)
-            stripe_tree.commit_exposed_segment(exposed_stripe_segment)
-
+            
+            delta_in_px_between_left_query_border_and_stripe_start: np.int64 = (
+                first_segment_contig_start_bins - stripes_in_range.first_stripe_start_bins
+            )
+            
             return delta_in_px_between_left_query_border_and_stripe_start, stripes
 
     # @lru_cache(maxsize=BLOCK_CACHE_SIZE, typed=True)
