@@ -163,7 +163,7 @@ def test_split_stripe_tree_by_count(
                 sdr == []
         ), "Right subtree must be empty"
 
-    st.root = st.merge_nodes(l, r)
+    st.root = StripeTree.merge_nodes(l, r)
 
     ordered_contig_ids_in_stripe_tree: List[np.int64] = []
 

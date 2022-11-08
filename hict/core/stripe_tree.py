@@ -199,38 +199,38 @@ class StripeTree(object):
                     t2.parent = None
                 return t, t2
 
-    def merge_nodes(self, t1: Optional[Node], t2: Optional[Node]) -> Optional[Node]:
-        with self.tree_lock.gen_wlock():
-            if t1 is None:
-                return t2
-            if t2 is None:
-                return t1
-            t1.push()
-            t2.push()
-            if t1.y_priority > t2.y_priority:
-                t1.right = self.merge_nodes(t1.right, t2)
-                t1.update_sizes()
-                if t1.left is not None:
-                    t1.left.parent = t1
-                if t1.right is not None:
-                    t1.right.parent = t1
-                return t1
-            else:
-                t2.left = self.merge_nodes(t1, t2.left)
-                t2.update_sizes()
-                if t2.left is not None:
-                    t2.left.parent = t2
-                if t2.right is not None:
-                    t2.right.parent = t2
-                return t2
+    @staticmethod
+    def merge_nodes(t1: Optional[Node], t2: Optional[Node]) -> Optional[Node]:
+        if t1 is None:
+            return t2
+        if t2 is None:
+            return t1
+        t1.push()
+        t2.push()
+        if t1.y_priority > t2.y_priority:
+            t1.right = StripeTree.merge_nodes(t1.right, t2)
+            t1.update_sizes()
+            if t1.left is not None:
+                t1.left.parent = t1
+            if t1.right is not None:
+                t1.right.parent = t1
+            return t1
+        else:
+            t2.left = StripeTree.merge_nodes(t1, t2.left)
+            t2.update_sizes()
+            if t2.left is not None:
+                t2.left.parent = t2
+            if t2.right is not None:
+                t2.right.parent = t2
+            return t2
 
     def insert_at_position(self, position: np.int64, contig_block: StripeDescriptor):
         with self.tree_lock.gen_wlock():
             new_node: StripeTree.Node = self.create_node(contig_block)
             if self.root is not None:
                 (t1, t2) = self.split_node_by_count(self.root, position)
-                t1 = self.merge_nodes(t1, new_node)
-                self.root = self.merge_nodes(t1, t2)
+                t1 = StripeTree.merge_nodes(t1, new_node)
+                self.root = StripeTree.merge_nodes(t1, t2)
             else:
                 self.root = new_node
 
@@ -279,8 +279,8 @@ class StripeTree(object):
     def commit_exposed_segment(self, segm: ExposedSegment):
         with self.tree_lock.gen_wlock():
             (t_l, t_seg, t_gr) = segm
-            t_le = self.merge_nodes(t_l, t_seg)
-            self.root = self.merge_nodes(t_le, t_gr)
+            t_le = StripeTree.merge_nodes(t_l, t_seg)
+            self.root = StripeTree.merge_nodes(t_le, t_gr)
 
     def reverse_direction_in_bins(self, start_bins: np.int64, end_bins: np.int64):
         with self.tree_lock.gen_wlock():
@@ -291,25 +291,24 @@ class StripeTree(object):
 
     @staticmethod
     def find_node_by_length(t: Optional[Node], length_bins: np.int64) -> Optional[Node]:
-        with self.tree_lock.gen_wlock():
-            if t is None:
-                return None
-            if length_bins == t.subtree_length:
-                return t
-            t.push()
-            left_subtree_length: np.int64 = (
-                t.left.subtree_length if t.left is not None else np.int64(0))
-            if length_bins <= left_subtree_length:
-                return StripeTree.find_node_by_length(t.left, length_bins)
-            elif left_subtree_length < length_bins <= (left_subtree_length + t.stripe_descriptor.stripe_length_bins):
-                return t
-            elif (left_subtree_length + t.stripe_descriptor.stripe_length_bins) < length_bins:
-                return StripeTree.find_node_by_length(
-                    t.right,
-                    length_bins - t.stripe_descriptor.stripe_length_bins - left_subtree_length
-                )
-            else:
-                raise Exception("Impossible case??")
+        if t is None:
+            return None
+        if length_bins == t.subtree_length:
+            return t
+        t.push()
+        left_subtree_length: np.int64 = (
+            t.left.subtree_length if t.left is not None else np.int64(0))
+        if length_bins <= left_subtree_length:
+            return StripeTree.find_node_by_length(t.left, length_bins)
+        elif left_subtree_length < length_bins <= (left_subtree_length + t.stripe_descriptor.stripe_length_bins):
+            return t
+        elif (left_subtree_length + t.stripe_descriptor.stripe_length_bins) < length_bins:
+            return StripeTree.find_node_by_length(
+                t.right,
+                length_bins - t.stripe_descriptor.stripe_length_bins - left_subtree_length
+            )
+        else:
+            raise Exception("Impossible case??")
 
     def find_block_storing_bins(self, length_bins: np.int64) -> Optional[StripeDescriptor]:
         with self.tree_lock.gen_wlock():
@@ -342,6 +341,21 @@ class StripeTree(object):
             Tuple[StripesInRange, StripesInRange]:
         with self.tree_lock.gen_wlock():
             return self.get_stripes_in_segment(x0_bins, x1_bins), self.get_stripes_in_segment(y0_bins, y1_bins)
+
+    def move_stripes(self, start_bins: int, end_bins: int, new_start_position_bins: int) -> None:
+        with self.tree_lock.gen_wlock():
+            (mt_less, mt_segment, mt_greater) = self.expose_segment(
+                start_bins,
+                end_bins
+            )
+            mt_intermediate = StripeTree.merge_nodes(mt_less, mt_greater)
+            (mt_new_less, mt_new_greater) = self.split_node_by_length(
+                mt_intermediate,
+                new_start_position_bins,
+                True
+            )
+            mt_new_less_with_segment = StripeTree.merge_nodes(mt_new_less, mt_segment)
+            self.root = StripeTree.merge_nodes(mt_new_less_with_segment, mt_new_greater)
 
     @staticmethod
     def get_rightmost(node: Optional['StripeTree.Node']) -> Optional['StripeTree.Node']:
