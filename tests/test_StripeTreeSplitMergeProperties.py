@@ -215,7 +215,7 @@ def test_expose_contig_stripes(
     ctgd, location_in_resolutions, location_in_resolutions_excluding_hidden, left_subsize_count = ct.get_contig_location(
         contig_index)
 
-    es = st.expose_segment(
+    es = st.expose_segment_by_length(
         1 + location_in_resolutions[resolution][0], location_in_resolutions[resolution][1])
 
     def generate_traverse_fn(lst: List[StripeDescriptor]) -> Callable[[StripeTree.Node], None]:

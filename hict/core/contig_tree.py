@@ -1,11 +1,14 @@
 import copy
 import random
 import sys
+import threading
 from typing import Dict, Optional, Tuple, List, Callable, NamedTuple
 
 import numpy as np
 
 from hict.core.common import ContigDirection, ContigDescriptor, QueryLengthUnit, ContigHideType
+
+from readerwriterlock import rwlock
 
 np.seterr(all='raise')
 
@@ -115,6 +118,8 @@ class ContigTree:
             ContigTree.get_rightmost(self)
 
     root: Optional[Node] = None
+    
+    tree_lock: rwlock.RWLockWrite = rwlock.RWLockWrite(threading.RLock)
 
     contig_name_to_id: Dict[str, int] = dict()
     contig_id_to_name: Dict[int, str] = dict()
@@ -136,28 +141,29 @@ class ContigTree:
     contig_id_to_node_in_tree: Dict[np.int64, Node] = dict()
 
     def split_node_by_count(self, t: Optional[Node], k: np.int64) -> Tuple[Optional[Node], Optional[Node]]:
-        if t is None:
-            return None, None
-        left_count: np.int64 = t.left.subtree_count if t.left is not None else 0
-        t.push()
-        if left_count >= k:
-            (t1, t2) = self.split_node_by_count(t.left, k)
-            t.left = t2
-            t.update_sizes()
-            if t1 is not None:
-                t1.parent = None
-            if t2 is not None:
-                t2.parent = t
-            return t1, t
-        else:
-            (t1, t2) = self.split_node_by_count(t.right, k - left_count - 1)
-            t.right = t1
-            t.update_sizes()
-            if t1 is not None:
-                t1.parent = t
-            if t2 is not None:
-                t2.parent = None
-            return t, t2
+        with self.tree_lock.gen_wlock():
+            if t is None:
+                return None, None
+            left_count: np.int64 = t.left.subtree_count if t.left is not None else 0
+            t.push()
+            if left_count >= k:
+                (t1, t2) = self.split_node_by_count(t.left, k)
+                t.left = t2
+                t.update_sizes()
+                if t1 is not None:
+                    t1.parent = None
+                if t2 is not None:
+                    t2.parent = t
+                return t1, t
+            else:
+                (t1, t2) = self.split_node_by_count(t.right, k - left_count - 1)
+                t.right = t1
+                t.update_sizes()
+                if t1 is not None:
+                    t1.parent = t
+                if t2 is not None:
+                    t2.parent = None
+                return t, t2
 
     def split_node_by_length(
             self,
@@ -383,63 +389,64 @@ class ContigTree:
         #     left_subsize_count += desc_node.left.subtree_count
         assert raw_node is not None, "Cannot find location for None-node"
         ascending_sequence: List[ContigTree.Node] = [raw_node]
-        while ascending_sequence[-1].parent is not None:
-            ascending_sequence.append(ascending_sequence[-1].parent)
+        with self.tree_lock.gen_wlock():
+            while ascending_sequence[-1].parent is not None:
+                ascending_sequence.append(ascending_sequence[-1].parent)
 
-        if ascending_sequence[-1] != self.root:
-            print("Debugger requested -- ascending led to non-root node")
+            if ascending_sequence[-1] != self.root:
+                print("Debugger requested -- ascending led to non-root node")
 
-        assert (
-                ascending_sequence[-1] == self.root
-        ), "Ascending should be terminated at the root of the tree"
-
-        for i, node in enumerate(reversed(ascending_sequence)):
             assert (
-                    node is not None
-            ), "During descending all nodes should not be None"
-            node.push()
-            node.update_sizes()
+                    ascending_sequence[-1] == self.root
+            ), "Ascending should be terminated at the root of the tree"
 
-        left_subsize_length: Dict[np.int64, np.int64] = dict().fromkeys(self.resolutions, np.int64(0))
-        left_subsize_length_excluding_hidden: Dict[np.int64, np.int64] = dict().fromkeys(self.resolutions, np.int64(0))
-        left_subsize_count: np.int64 = np.int64(0)
+            for i, node in enumerate(reversed(ascending_sequence)):
+                assert (
+                        node is not None
+                ), "During descending all nodes should not be None"
+                node.push()
+                node.update_sizes()
 
-        if raw_node.left is not None:
-            for res in self.resolutions:
-                left_subsize_length[res] += raw_node.left.subtree_length_bins[res]
-                left_subsize_length_excluding_hidden[res] += raw_node.left.subtree_length_px[res]
-            left_subsize_count += raw_node.left.subtree_count
+            left_subsize_length: Dict[np.int64, np.int64] = dict().fromkeys(self.resolutions, np.int64(0))
+            left_subsize_length_excluding_hidden: Dict[np.int64, np.int64] = dict().fromkeys(self.resolutions, np.int64(0))
+            left_subsize_count: np.int64 = np.int64(0)
 
-        if include_border_in_size:
-            for res in self.resolutions:
-                left_subsize_length[res] += raw_node.contig_descriptor.contig_length_at_resolution[res]
-                left_subsize_length_excluding_hidden[res] += (
-                    0 if raw_node.contig_descriptor.presence_in_resolution[res] in (
-                        ContigHideType.AUTO_HIDDEN, ContigHideType.FORCED_HIDDEN
-                    ) else currentNode.parent.contig_descriptor.contig_length_at_resolution[res]
-                )
-            left_subsize_count += 1
+            if raw_node.left is not None:
+                for res in self.resolutions:
+                    left_subsize_length[res] += raw_node.left.subtree_length_bins[res]
+                    left_subsize_length_excluding_hidden[res] += raw_node.left.subtree_length_px[res]
+                left_subsize_count += raw_node.left.subtree_count
 
-        for i, currentNode in enumerate(ascending_sequence[:-1]):
-            if currentNode == currentNode.parent.right:
-                left_subsize_count += 1
-                for resolution in currentNode.parent.subtree_length_bins.keys():
-                    left_subsize_length[resolution] += currentNode.parent.contig_descriptor.contig_length_at_resolution[
-                        resolution]
-                    left_subsize_length_excluding_hidden[resolution] += (
-                        0 if currentNode.parent.contig_descriptor.presence_in_resolution[resolution] in (
+            if include_border_in_size:
+                for res in self.resolutions:
+                    left_subsize_length[res] += raw_node.contig_descriptor.contig_length_at_resolution[res]
+                    left_subsize_length_excluding_hidden[res] += (
+                        0 if raw_node.contig_descriptor.presence_in_resolution[res] in (
                             ContigHideType.AUTO_HIDDEN, ContigHideType.FORCED_HIDDEN
-                        ) else currentNode.parent.contig_descriptor.contig_length_at_resolution[resolution]
+                        ) else currentNode.parent.contig_descriptor.contig_length_at_resolution[res]
                     )
-                if currentNode.parent.left is not None:
-                    left_subsize_count += currentNode.parent.left.subtree_count
-                    for resolution in currentNode.parent.subtree_length_bins.keys():
-                        left_subsize_length[resolution] += currentNode.parent.left.subtree_length_bins[resolution]
-                        left_subsize_length_excluding_hidden[resolution] += (
-                            currentNode.parent.left.subtree_length_px[resolution]
-                        )
+                left_subsize_count += 1
 
-        return left_subsize_length, left_subsize_length_excluding_hidden, left_subsize_count
+            for i, currentNode in enumerate(ascending_sequence[:-1]):
+                if currentNode == currentNode.parent.right:
+                    left_subsize_count += 1
+                    for resolution in currentNode.parent.subtree_length_bins.keys():
+                        left_subsize_length[resolution] += currentNode.parent.contig_descriptor.contig_length_at_resolution[
+                            resolution]
+                        left_subsize_length_excluding_hidden[resolution] += (
+                            0 if currentNode.parent.contig_descriptor.presence_in_resolution[resolution] in (
+                                ContigHideType.AUTO_HIDDEN, ContigHideType.FORCED_HIDDEN
+                            ) else currentNode.parent.contig_descriptor.contig_length_at_resolution[resolution]
+                        )
+                    if currentNode.parent.left is not None:
+                        left_subsize_count += currentNode.parent.left.subtree_count
+                        for resolution in currentNode.parent.subtree_length_bins.keys():
+                            left_subsize_length[resolution] += currentNode.parent.left.subtree_length_bins[resolution]
+                            left_subsize_length_excluding_hidden[resolution] += (
+                                currentNode.parent.left.subtree_length_px[resolution]
+                            )
+
+            return left_subsize_length, left_subsize_length_excluding_hidden, left_subsize_count
 
     def get_updated_contig_node_by_contig_id(self, contig_id: np.int64) -> 'ContigTree.Node':
         raw_node: ContigTree.Node = self.contig_id_to_node_in_tree[contig_id]
@@ -448,35 +455,37 @@ class ContigTree:
         ascending_sequence: List[bool] = []
 
         asc_node: Optional[ContigTree.Node] = raw_node
-        while asc_node is not None and asc_node.parent is not None:
-            if asc_node is asc_node.parent.left:
-                ascending_sequence.append(False)
-            elif asc_node is asc_node.parent.right:
-                ascending_sequence.append(True)
-            else:
-                assert False, "Node is not connected to its parent??"
-            assert asc_node.parent is not None or asc_node is self.root, "Unlinked node that's not a root of tree??"
-            asc_node = asc_node.parent
+        
+        with self.tree_lock.gen_wlock():
+            while asc_node is not None and asc_node.parent is not None:
+                if asc_node is asc_node.parent.left:
+                    ascending_sequence.append(False)
+                elif asc_node is asc_node.parent.right:
+                    ascending_sequence.append(True)
+                else:
+                    assert False, "Node is not connected to its parent??"
+                assert asc_node.parent is not None or asc_node is self.root, "Unlinked node that's not a root of tree??"
+                asc_node = asc_node.parent
 
-        desc_node: Optional[ContigTree.Node] = self.root
+            desc_node: Optional[ContigTree.Node] = self.root
 
-        assert desc_node is not None or len(
-            ascending_sequence) == 0, "Root is missing but there is ascending sequence leading to it?"
+            assert desc_node is not None or len(
+                ascending_sequence) == 0, "Root is missing but there is ascending sequence leading to it?"
 
-        for asc_dir in reversed(ascending_sequence):
-            assert desc_node is not None, "Descending leads to nonexistent node??"
-            flip_flag: bool = desc_node.needs_changing_direction
-            desc_node.push()
-            desc_node.update_sizes()
-            desc_dir: bool = asc_dir ^ flip_flag
-            if desc_dir is False:
-                desc_node = desc_node.left
-            else:
-                desc_node = desc_node.right
-        if desc_node is not None:
-            desc_node.push()
-            # desc_node.update_sizes()
-        return desc_node
+            for asc_dir in reversed(ascending_sequence):
+                assert desc_node is not None, "Descending leads to nonexistent node??"
+                flip_flag: bool = desc_node.needs_changing_direction
+                desc_node.push()
+                desc_node.update_sizes()
+                desc_dir: bool = asc_dir ^ flip_flag
+                if desc_dir is False:
+                    desc_node = desc_node.left
+                else:
+                    desc_node = desc_node.right
+            if desc_node is not None:
+                desc_node.push()
+                # desc_node.update_sizes()
+            return desc_node
 
     def get_contig_location(
             self,
@@ -488,31 +497,32 @@ class ContigTree:
         np.int64
     ]:
         contig_raw_node: ContigTree.Node = self.contig_id_to_node_in_tree[contig_id]
-        left_subsize_length, left_subsize_length_excluding_hidden, left_subsize_count = self.get_left_subsize(
-            contig_raw_node,
-            False
-        )
-        contig_length: Dict[np.int64, np.int64] = contig_raw_node.contig_descriptor.contig_length_at_resolution
-        location_in_resolutions: Dict[np.int64, Tuple[np.int64, np.int64]] = dict()
-        location_in_resolutions_excluding_hidden: Dict[np.int64, Tuple[np.int64, np.int64]] = dict()
-        for res in self.resolutions:
-            location_in_resolutions[res] = (
-                left_subsize_length[res],
-                left_subsize_length[res] + contig_length[res]
+        with self.tree_lock.gen_wlock():
+            left_subsize_length, left_subsize_length_excluding_hidden, left_subsize_count = self.get_left_subsize(
+                contig_raw_node,
+                False
             )
-            location_in_resolutions_excluding_hidden[res] = (
-                left_subsize_length_excluding_hidden[res],
-                left_subsize_length_excluding_hidden[res] + (
-                    0 if (
-                            contig_raw_node.contig_descriptor.presence_in_resolution[res] in
-                            (
-                                ContigHideType.AUTO_HIDDEN,
-                                ContigHideType.FORCED_HIDDEN,
-                            )
-                    ) else contig_length[res]
+            contig_length: Dict[np.int64, np.int64] = contig_raw_node.contig_descriptor.contig_length_at_resolution
+            location_in_resolutions: Dict[np.int64, Tuple[np.int64, np.int64]] = dict()
+            location_in_resolutions_excluding_hidden: Dict[np.int64, Tuple[np.int64, np.int64]] = dict()
+            for res in self.resolutions:
+                location_in_resolutions[res] = (
+                    left_subsize_length[res],
+                    left_subsize_length[res] + contig_length[res]
                 )
-            )
-        return contig_raw_node.contig_descriptor, location_in_resolutions, location_in_resolutions_excluding_hidden, left_subsize_count
+                location_in_resolutions_excluding_hidden[res] = (
+                    left_subsize_length_excluding_hidden[res],
+                    left_subsize_length_excluding_hidden[res] + (
+                        0 if (
+                                contig_raw_node.contig_descriptor.presence_in_resolution[res] in
+                                (
+                                    ContigHideType.AUTO_HIDDEN,
+                                    ContigHideType.FORCED_HIDDEN,
+                                )
+                        ) else contig_length[res]
+                    )
+                )
+            return contig_raw_node.contig_descriptor, location_in_resolutions, location_in_resolutions_excluding_hidden, left_subsize_count
 
     def get_contig_order(
             self,
@@ -522,33 +532,37 @@ class ContigTree:
         np.int64
     ]:
         contig_raw_node: ContigTree.Node = self.contig_id_to_node_in_tree[contig_id]
-        _, _, left_subsize_count = self.get_left_subsize(
-            contig_raw_node,
-            False
-        )
-        return contig_raw_node.contig_descriptor, left_subsize_count
+        with self.tree_lock.gen_wlock():
+            _, _, left_subsize_count = self.get_left_subsize(
+                contig_raw_node,
+                False
+            )
+            return contig_raw_node.contig_descriptor, left_subsize_count
 
     def insert_at_position(self, contig_descriptor: ContigDescriptor, index: np.int64):
-        new_node: ContigTree.Node = ContigTree.Node(contig_descriptor)
-        self.contig_id_to_node_in_tree[contig_descriptor.contig_id] = new_node
-        if self.root is not None:
-            (l, r) = self.split_node_by_count(self.root, index)
-            new_l: ContigTree.Node = self.merge_nodes(l, new_node)
-            self.root = self.merge_nodes(new_l, r)
-        else:
-            self.root = new_node
+        with self.tree_lock.gen_wlock():
+            new_node: ContigTree.Node = ContigTree.Node(contig_descriptor)
+            self.contig_id_to_node_in_tree[contig_descriptor.contig_id] = new_node
+            if self.root is not None:
+                (l, r) = self.split_node_by_count(self.root, index)
+                new_l: ContigTree.Node = self.merge_nodes(l, new_node)
+                self.root = self.merge_nodes(new_l, r)
+            else:
+                self.root = new_node
 
     def get_sizes(self) -> Tuple[Dict[np.int64, np.int64], np.int64, Dict[np.int64, np.int64]]:
-        if self.root is not None:
-            return self.root.get_sizes()
-        else:
-            return dict({0: 0}), 0, dict({0: 0})
+        with self.tree_lock.gen_rlock():
+            if self.root is not None:
+                return self.root.get_sizes()
+            else:
+                return dict({0: 0}), 0, dict({0: 0})
 
     def get_node_count(self):
-        if self.root is not None:
-            self.root.update_sizes()
-            return self.root.subtree_count
-        return 0
+        with self.tree_lock.gen_rlock():
+            if self.root is not None:
+                self.root.update_sizes()
+                return self.root.subtree_count
+            return 0
 
     @staticmethod
     def get_rightmost(node: Optional['ContigTree.Node']) -> Optional['ContigTree.Node']:
@@ -574,22 +588,24 @@ class ContigTree:
         """
         Exposes segment of contigs in assembly order from start_count to end_count (both inclusive).
         """
-        (t_le, t_gr) = self.split_node_by_count(self.root, 1 + end_count)
-        (t_l, t_seg) = self.split_node_by_count(t_le, start_count)
-        if t_seg is not None:
-            t_seg.push()
-            t_seg.update_sizes()
-        return ContigTree.ExposedSegment(t_l, t_seg, t_gr)
+        with self.tree_lock.gen_wlock():
+            (t_le, t_gr) = self.split_node_by_count(self.root, 1 + end_count)
+            (t_l, t_seg) = self.split_node_by_count(t_le, start_count)
+            if t_seg is not None:
+                t_seg.push()
+                t_seg.update_sizes()
+            return ContigTree.ExposedSegment(t_l, t_seg, t_gr)
 
     def expose_segment_by_length(self, start_px: np.int64, end_px: np.int64, resolution: np.int64) -> ExposedSegment:
         """
         Exposes segment from start_px to end_px (both inclusive).
         """
-        (t_le, t_gr) = self.split_node_by_length(resolution, self.root, end_px, include_equal_to_the_left=True)
-        (t_l, t_seg) = self.split_node_by_length(resolution, t_le, start_px, include_equal_to_the_left=False)
-        if t_seg is not None:
-            t_seg.push()
-        return ContigTree.ExposedSegment(t_l, t_seg, t_gr)
+        with self.tree_lock.gen_wlock():
+            (t_le, t_gr) = self.split_node_by_length(resolution, self.root, end_px, include_equal_to_the_left=True)
+            (t_l, t_seg) = self.split_node_by_length(resolution, t_le, start_px, include_equal_to_the_left=False)
+            if t_seg is not None:
+                t_seg.push()
+            return ContigTree.ExposedSegment(t_l, t_seg, t_gr)
 
     def expose_segment(
             self,
@@ -601,28 +617,30 @@ class ContigTree:
         """
         Exposes segment from start to end units (both inclusive).
         """
-        (t_le, t_gr) = self.split_node_by_length(
-            resolution,
-            self.root,
-            end,
-            include_equal_to_the_left=True,
-            units=units
-        )
-        (t_l, t_seg) = self.split_node_by_length(
-            resolution,
-            t_le,
-            start,
-            include_equal_to_the_left=False,
-            units=units
-        )
-        if t_seg is not None:
-            t_seg.push()
-        return ContigTree.ExposedSegment(t_l, t_seg, t_gr)
+        with self.tree_lock.gen_wlock():
+            (t_le, t_gr) = self.split_node_by_length(
+                resolution,
+                self.root,
+                end,
+                include_equal_to_the_left=True,
+                units=units
+            )
+            (t_l, t_seg) = self.split_node_by_length(
+                resolution,
+                t_le,
+                start,
+                include_equal_to_the_left=False,
+                units=units
+            )
+            if t_seg is not None:
+                t_seg.push()
+            return ContigTree.ExposedSegment(t_l, t_seg, t_gr)
 
     def commit_exposed_segment(self, segm: ExposedSegment):
         (t_l, t_seg, t_gr) = segm
-        t_le = self.merge_nodes(t_l, t_seg)
-        self.root = self.merge_nodes(t_le, t_gr)
+        with self.tree_lock.gen_wlock():
+            t_le = self.merge_nodes(t_l, t_seg)
+            self.root = self.merge_nodes(t_le, t_gr)
 
     def reverse_contigs_in_segment(self, start_index: np.int64, end_index: np.int64):
         """
@@ -630,12 +648,13 @@ class ContigTree:
         @param start_index: Start index of contig (inclusive).
         @param end_index: End index of contig (inclusive).
         """
-        segm: ContigTree.ExposedSegment = self.expose_segment_by_count(start_index, end_index)
-        (t_l, t_seg, t_gr) = segm
-        if t_seg is not None:
-            t_seg: ContigTree.Node
-            t_seg.reverse_subtree()
-        self.commit_exposed_segment(segm)
+        with self.tree_lock.gen_wlock():
+            segm: ContigTree.ExposedSegment = self.expose_segment_by_count(start_index, end_index)
+            (t_l, t_seg, t_gr) = segm
+            if t_seg is not None:
+                t_seg: ContigTree.Node
+                t_seg.reverse_subtree()
+            self.commit_exposed_segment(segm)
 
     @staticmethod
     def traverse_node(t: Optional[Node], f: Callable[[Node], None]):
@@ -665,10 +684,12 @@ class ContigTree:
         ContigTree.traverse_node(t.right, f)
 
     def traverse(self, f: Callable[[Node], None]):
-        ContigTree.traverse_node(self.root, f)
+        with self.tree_lock.gen_rlock():
+            ContigTree.traverse_node(self.root, f)
 
     def traverse_at_resolution(self, resolution: np.int64, exclude_hidden: bool, f: Callable[[Node], None]):
-        ContigTree.traverse_nodes_at_resolution(self.root, resolution, exclude_hidden, f)
+        with self.tree_lock.gen_rlock():
+            ContigTree.traverse_nodes_at_resolution(self.root, resolution, exclude_hidden, f)
 
     # def leftmost(self):
     #     return ContigTree.get_leftmost(self.root)

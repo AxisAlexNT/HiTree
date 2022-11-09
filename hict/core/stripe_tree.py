@@ -17,7 +17,6 @@ from dataclasses import dataclass
 
 class StripeTree(object):
     resolution: np.int64
-    cache_valid: bool
     tree_lock: rwlock.RWLockWrite
     cache: 'StripeTreeCache'
     stripe_descriptors_by_id: List[Optional[StripeDescriptor]]
@@ -109,17 +108,21 @@ class StripeTree(object):
         with self.tree_lock.gen_wlock():
             self.root = None
             self.resolution = resolution
-            self.cache_valid = False
             self.cache = StripeTreeCache(self)
             self.cache.update()
 
-    def create_node(self, stripe_descriptor: StripeDescriptor) -> Node:
+    def create_node(self, stripe_descriptor: StripeDescriptor, update_cache: bool = False) -> Node:
         stripe_id = stripe_descriptor.stripe_id
         with self.tree_lock.gen_wlock():
+            with self.cache.cache_lock.gen_wlock(), self.cache.cv_is_valid:
+                self.cache.is_valid = False
             if len(self.stripe_descriptors_by_id) <= stripe_id:
                 self.stripe_descriptors_by_id.extend(
                     (1 + stripe_id - len(self.stripe_descriptors_by_id)) * [None])
             self.stripe_descriptors_by_id[stripe_id] = stripe_descriptor
+            if update_cache:
+                with self.cache.cache_lock.gen_wlock():
+                    self.cache.update()
             return StripeTree.Node(stripe_descriptor, self)
 
     def split_node_by_count(self, t: Optional[Node], k: np.int64) -> Tuple[Optional[Node], Optional[Node]]:
@@ -262,11 +265,13 @@ class StripeTree(object):
                 return self.root.subtree_count
             return 0
 
-    def expose_segment(self, start_bins: np.int64, end_bins: np.int64) -> ExposedSegment:
+    def expose_segment_by_length(self, start_bins: np.int64, end_bins: np.int64) -> ExposedSegment:
         """
         Exposes segment from (start_bins-1) to end_bins (both inclusive).
         """
         with self.tree_lock.gen_wlock():
+            with self.cache.cache_lock.gen_wlock(), self.cache.cv_is_valid:
+                self.cache.is_valid = False
             (t_le, t_gr) = self.split_node_by_length(
                 self.root, end_bins, include_equal_to_the_left=True)
             # TODO: Actually 1+start_bins
@@ -276,18 +281,45 @@ class StripeTree(object):
                 t_seg.push()
             return StripeTree.ExposedSegment(t_l, t_seg, t_gr)
 
-    def commit_exposed_segment(self, segm: ExposedSegment):
+    def expose_segment_by_count(self, start_order: np.int64, end_order: np.int64) -> ExposedSegment:
+        """
+        Exposes segment from (start_order) to end_order (both inclusive).
+        """
+        with self.tree_lock.gen_wlock():
+            with self.cache.cache_lock.gen_wlock(), self.cache.cv_is_valid:
+                self.cache.is_valid = False
+            (t_le, t_gr) = self.split_node_by_count(
+                self.root, 1+end_order)
+            # TODO: Actually 1+start_bins
+            (t_l, t_seg) = self.split_node_by_count(
+                t_le, start_order)
+            if t_seg is not None:
+                t_seg.push()
+            return StripeTree.ExposedSegment(t_l, t_seg, t_gr)
+
+    def commit_exposed_segment(self, segm: ExposedSegment, update_cache: bool = True):
         with self.tree_lock.gen_wlock():
             (t_l, t_seg, t_gr) = segm
             t_le = StripeTree.merge_nodes(t_l, t_seg)
             self.root = StripeTree.merge_nodes(t_le, t_gr)
+            if update_cache:
+                with self.cache.cache_lock.gen_wlock():
+                    self.cache.update()
 
-    def reverse_direction_in_bins(self, start_bins: np.int64, end_bins: np.int64):
+    def reverse_direction_in_bins(self, start_bins: np.int64, end_bins: np.int64, update_cache: bool = True):
+        start_order: Optional[int] = None
+        end_order: Optional[int] = None
         with self.tree_lock.gen_wlock():
-            exposed_segment = self.expose_segment(start_bins, end_bins)
+            exposed_segment = self.expose_segment_by_length(
+                start_bins, end_bins)
             if exposed_segment.segment is not None:
                 exposed_segment.segment.reverse_subtree()
-            self.commit_exposed_segment(exposed_segment)
+                start_order = exposed_segment.less.get_sizes().block_count
+                end_order = exposed_segment.segment.get_sizes().block_count + start_order
+            self.commit_exposed_segment(exposed_segment, update_cache=False)
+            if update_cache and start_order is not None and end_order is not None:
+                with self.cache.cache_lock.gen_wlock():
+                    self.cache.update((start_order, end_order))
 
     @staticmethod
     def find_node_by_length(t: Optional[Node], length_bins: np.int64) -> Optional[Node]:
@@ -310,8 +342,8 @@ class StripeTree(object):
         else:
             raise Exception("Impossible case??")
 
-    def find_block_storing_bins(self, length_bins: np.int64) -> Optional[StripeDescriptor]:
-        with self.tree_lock.gen_wlock():
+    def find_stripe_storing_bins(self, length_bins: np.int64) -> Optional[StripeDescriptor]:
+        with self.tree_lock.gen_rlock():
             mb_node: Optional[StripeTree.Node] = StripeTree.find_node_by_length(
                 self.root, 1 + length_bins)
             if mb_node is not None:
@@ -325,37 +357,57 @@ class StripeTree(object):
         first_stripe_start_bins: np.int64
 
     def get_stripes_in_segment(self, start_bins: np.int64, end_bins: np.int64) -> StripesInRange:
-        with self.tree_lock.gen_wlock():
-            result: List[StripeDescriptor] = []
-            es: StripeTree.ExposedSegment = self.expose_segment(
-                start_bins, end_bins)
-            StripeTree.traverse_node(
-                es.segment, lambda n: result.append(n.true_stripe_descriptor()))
-            first_stripe_start_bins: np.int64 = (
-                es.less.get_sizes().length_bins
-            ) if es.less is not None else np.int64(0)
-            self.commit_exposed_segment(es)
-            return StripeTree.StripesInRange(result, first_stripe_start_bins)
+        with self.tree_lock.gen_rlock():
+            with self.cache.cache_lock.gen_rlock():
+                return self.cache.get_stripes_in_segment(start_bins, end_bins)
+        # with self.tree_lock.gen_wlock():
+        #     result: List[StripeDescriptor] = []
+        #     es: StripeTree.ExposedSegment = self.expose_segment_by_length(
+        #         start_bins, end_bins)
+        #     StripeTree.traverse_node(
+        #         es.segment, lambda n: result.append(n.true_stripe_descriptor()))
+        #     first_stripe_start_bins: np.int64 = (
+        #         es.less.get_sizes().length_bins
+        #     ) if es.less is not None else np.int64(0)
+        #     self.commit_exposed_segment(es)
+        #     return StripeTree.StripesInRange(result, first_stripe_start_bins)
 
     def get_stripes_for_rectangle(self, x0_bins: np.int64, y0_bins: np.int64, x1_bins: np.int64, y1_bins: np.int64) -> \
             Tuple[StripesInRange, StripesInRange]:
         with self.tree_lock.gen_wlock():
             return self.get_stripes_in_segment(x0_bins, x1_bins), self.get_stripes_in_segment(y0_bins, y1_bins)
 
-    def move_stripes(self, start_bins: int, end_bins: int, new_start_position_bins: int) -> None:
+    def move_stripes(self, start_bins: int, end_bins: int, new_start_position_bins: int, update_cache: bool = True) -> None:
         with self.tree_lock.gen_wlock():
-            (mt_less, mt_segment, mt_greater) = self.expose_segment(
+            (mt_less, mt_segment, mt_greater) = self.expose_segment_by_length(
                 start_bins,
                 end_bins
             )
-            mt_intermediate = StripeTree.merge_nodes(mt_less, mt_greater)
-            (mt_new_less, mt_new_greater) = self.split_node_by_length(
-                mt_intermediate,
-                new_start_position_bins,
-                True
-            )
-            mt_new_less_with_segment = StripeTree.merge_nodes(mt_new_less, mt_segment)
-            self.root = StripeTree.merge_nodes(mt_new_less_with_segment, mt_new_greater)
+            if mt_segment is not None:
+                start_order = mt_less.get_sizes().block_count if mt_less is not None else 0
+                end_order = (mt_segment.get_sizes(
+                ).block_count if mt_segment is not None else 0) + start_order
+                mt_intermediate = StripeTree.merge_nodes(mt_less, mt_greater)
+                (mt_new_less, mt_new_greater) = self.split_node_by_length(
+                    mt_intermediate,
+                    new_start_position_bins,
+                    True
+                )
+                target_order = mt_new_less.get_sizes().block_count if mt_new_less is not None else 0
+                mt_new_less_with_segment = StripeTree.merge_nodes(
+                    mt_new_less, mt_segment)
+                self.root = StripeTree.merge_nodes(
+                    mt_new_less_with_segment, mt_new_greater)
+                if update_cache:
+                    with self.cache.cache_lock.gen_wlock():
+                        self.cache.on_move(
+                            start_order, end_order, target_order)
+            else:
+                self.commit_exposed_segment(StripeTree.ExposedSegment(
+                    mt_less, mt_segment, mt_greater), False)
+                with self.cache.cache_lock.gen_wlock(), self.cache.cv_is_valid:
+                    self.cache.is_valid = True
+                    self.cache.cv_is_valid.notify_all()
 
     @staticmethod
     def get_rightmost(node: Optional['StripeTree.Node']) -> Optional['StripeTree.Node']:
@@ -389,63 +441,150 @@ class StripeTree(object):
 
 class StripeTreeCache(object):
     stripe_tree: StripeTree
+    stripe_order: np.ndarray
     length_bp: np.ndarray
     length_bins: np.ndarray
-    prefix_sum_length_bp: np.ndarray
+    # prefix_sum_length_bp: np.ndarray
     prefix_sum_length_bins: np.ndarray
     stripe_count: np.int64
-    is_valid: bool
-    is_valid_cv: threading.Condition
     cache_lock: rwlock.RWLockWrite
+    is_valid: bool
+    cv_is_valid: threading.Condition
 
     def __init__(self, stripe_tree: StripeTree) -> None:
         self.stripe_tree = stripe_tree
-        self.is_valid = False
         self.cache_lock = rwlock.RWLockWrite(lock_factory=threading.RLock)
-        self.is_valid_cv = threading.Condition(lock=threading.RLock())
+        self.is_valid = False
+        self.cv_is_valid = threading.Condition(lock=threading.RLock())
 
-    def update(self) -> None:
+    def update(self, borders: Optional[Tuple[int, int]] = None) -> None:
+        """
+        Update cache to reflect new state of tree
+
+        Args:
+            borders (Optional[Tuple[int, int]], optional): Left border(inclusive) and right border(exclusive) of changes in terms of stripes' orders. Defaults to None.
+        """
         with self.cache_lock.gen_wlock():
-            with self.is_valid_cv:
-                self.is_valid = False
-            self.copy_stripes()
-            self.recalculate_prefix_sums()
-            with self.is_valid_cv:
+            if borders is None:
+                self.copy_stripes()
+            else:
+                self.partial_copy_stripes(borders)
+            self.recalculate_prefix_sums(borders)
+            with self.cv_is_valid:
                 self.is_valid = True
-                self.is_valid_cv.notify_all()
-        pass
+                self.cv_is_valid.notify_all()
 
     def copy_stripes(self) -> None:
-        stripes = []
         index: int = 0
 
         def traverse_fn(node: StripeTree.Node) -> None:
             nonlocal index
-            stripes.append(node.stripe_descriptor)
-            self.length_bp[index] = node.stripe_descriptor.stripe_length_bp
+            self.stripe_order[index] = (node.stripe_descriptor.stripe_id)
+            # self.length_bp[index] = node.stripe_descriptor.stripe_length_bp
             self.length_bins[index] = node.stripe_descriptor.stripe_length_bins
             index += 1
+
         with self.cache_lock.gen_wlock():
-            with self.stripe_tree.tree_lock.gen_wlock():
+            with self.stripe_tree.tree_lock.gen_rlock():
                 self.stripe_count = (
                     self.stripe_tree.root.get_sizes().block_count
                 ) if self.stripe_tree.root is not None else 0
-                self.length_bp = np.zeros(
+                self.stripe_order = np.zeros(
                     shape=self.stripe_count, dtype=np.int64)
+                # self.length_bp = np.zeros(
+                #     shape=self.stripe_count, dtype=np.int64)
                 self.length_bins = np.zeros(
                     shape=self.stripe_count, dtype=np.int64)
                 self.stripe_tree.traverse(traverse_fn)
-            self.stripes = stripes
 
-    def recalculate_prefix_sums(self) -> None:
+    def recalculate_prefix_sums(self, borders: Optional[Tuple[int, int]]) -> None:
         with self.cache_lock.gen_wlock():
-            self.prefix_sum_length_bp = np.cumsum(
-                #map(lambda s: s.stripe_length_bp, self.stripes),
-                self.length_bp,
-                dtype=np.int64
-            )
-            self.prefix_sum_length_bins = np.cumsum(
-                #map(lambda s: s.stripe_length_bins, self.stripes),
-                self.length_bins,
-                dtype=np.int64
-            )
+            if borders is None:
+                # self.prefix_sum_length_bp = np.cumsum(
+                #     self.length_bp,
+                #     dtype=np.int64
+                # )
+                self.prefix_sum_length_bins = np.cumsum(
+                    self.length_bins,
+                    dtype=np.int64
+                )
+            else:
+                # np.cumsum(
+                #     self.length_bp,
+                #     dtype=np.int64,
+                #     out=self.prefix_sum_length_bp[borders[0]:borders[1]]
+                # )
+                np.cumsum(
+                    self.length_bins[borders[0]:borders[1]],
+                    dtype=np.int64,
+                    out=self.prefix_sum_length_bins[borders[0]:borders[1]]
+                )
+                if borders[0] != 0:
+                    # self.prefix_sum_length_bp[borders[0]:borders[1]
+                    #                           ] += self.prefix_sum_length_bp[borders[0]-1]
+                    self.prefix_sum_length_bins[borders[0]:borders[1]
+                                                ] += self.prefix_sum_length_bins[borders[0]-1]
+
+    def partial_copy_stripes(self, borders: Optional[Tuple[int, int]] = None) -> None:
+        index: int = borders[0]
+
+        def traverse_fn(node: StripeTree.Node) -> None:
+            nonlocal index
+            self.stripe_order[index] = (node.stripe_descriptor.stripe_id)
+            # self.length_bp[index] = node.stripe_descriptor.stripe_length_bp
+            self.length_bins[index] = node.stripe_descriptor.stripe_length_bins
+            index += 1
+
+        with self.cache_lock.gen_wlock():
+            with self.stripe_tree.tree_lock.gen_wlock():
+                es: StripeTree.ExposedSegment = self.stripe_tree.expose_segment_by_count(
+                    1+borders[0],
+                    borders[1]-1
+                )
+                StripeTree.traverse_node(es.segment, traverse_fn)
+                self.stripe_tree.commit_exposed_segment(es)
+
+    def on_reversal(self, from_index_incl: int, to_index_excl: int) -> None:
+        with self.cache_lock.gen_wlock():
+            self.stripe_order[from_index_incl, to_index_excl] = np.flip(
+                self.stripe_order[from_index_incl, to_index_excl])
+            with self.cv_is_valid:
+                self.is_valid = True
+                self.cv_is_valid.notify_all()
+
+    def on_move(self, from_index_incl: int, to_index_excl: int, target_index: int) -> None:
+        with self.cache_lock.gen_wlock():
+            if target_index < from_index_incl:
+                self.stripe_order[target_index, to_index_excl] = np.roll(
+                    self.stripe_order[target_index, to_index_excl], shift=target_index-from_index_incl)
+            elif target_index >= from_index_incl:
+                self.stripe_order[from_index_incl:target_index+(to_index_excl-from_index_incl+1)] = np.roll(
+                    self.stripe_order[from_index_incl:target_index +
+                                      (to_index_excl-from_index_incl)],
+                    shift=-(to_index_excl-from_index_incl)
+                )
+            elif from_index_incl < target_index < to_index_excl:
+                self.stripe_order[from_index_incl:to_index_excl+(target_index-from_index_incl)] = np.roll(
+                    self.stripe_order[from_index_incl:to_index_excl +
+                                      (target_index-from_index_incl)],
+                    shift=to_index_excl-from_index_incl
+                )
+            with self.cv_is_valid:
+                self.is_valid = True
+                self.cv_is_valid.notify_all()
+
+    def get_stripes_in_segment(self, start_bins: np.int64, end_bins: np.int64) -> StripeTree.StripesInRange:
+        with self.cv_is_valid:
+            while not self.cv_is_valid.wait_for(lambda: self.is_valid, timeout=1.0):
+                self.update()
+            with self.cache_lock.gen_rlock():
+                self.cv_is_valid.wait_for(lambda: self.is_valid)
+                istart, iend = np.searchsorted(
+                    self.prefix_sum_length_bins, [start_bins, end_bins])
+                stripe_indices = self.stripe_order[istart:iend+1]
+                return StripeTree.StripesInRange(
+                    list(
+                        map(lambda i: self.stripe_tree.stripe_descriptors_by_id[i], stripe_indices)),
+                    self.prefix_sum_length_bins[istart -
+                                                1] if istart > 0 else np.int64(0)
+                )
