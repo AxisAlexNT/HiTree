@@ -523,7 +523,7 @@ class StripeTreeCache(object):
                     self.prefix_sum_length_bins[borders[0]:borders[1]
                                                 ] += self.prefix_sum_length_bins[borders[0]-1]
 
-    def partial_copy_stripes(self, borders: Optional[Tuple[int, int]] = None) -> None:
+    def partial_copy_stripes(self, borders: Tuple[int, int]) -> None:
         index: int = borders[0]
 
         def traverse_fn(node: StripeTree.Node) -> None:
@@ -553,8 +553,8 @@ class StripeTreeCache(object):
     def on_move(self, from_index_incl: int, to_index_excl: int, target_index: int) -> None:
         with self.cache_lock.gen_wlock():
             if target_index < from_index_incl:
-                self.stripe_order[target_index, to_index_excl] = np.roll(
-                    self.stripe_order[target_index, to_index_excl], shift=target_index-from_index_incl)
+                self.stripe_order[target_index:to_index_excl] = np.roll(
+                    self.stripe_order[target_index:to_index_excl], shift=target_index-from_index_incl)
             elif target_index >= from_index_incl:
                 self.stripe_order[from_index_incl:target_index+(to_index_excl-from_index_incl+1)] = np.roll(
                     self.stripe_order[from_index_incl:target_index +
