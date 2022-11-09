@@ -67,6 +67,7 @@ class ChunkedFile(object):
         self.scaffold_holder: ScaffoldHolder = ScaffoldHolder()
         self.dtype: Optional[np.dtype] = None
         self.hdf_file_lock: rwlock.RWLockWrite = rwlock.RWLockWrite()
+        self.opened_hdf_file: h5py.File = h5py.File(filepath, mode='r')
         self.fasta_processor: Optional[FASTAProcessor] = None
         self.fasta_file_lock: rwlock.RWLockFair = rwlock.RWLockFair()
 
@@ -79,7 +80,8 @@ class ChunkedFile(object):
         contig_id_to_direction: List[ContigDirection] = []
         contig_id_to_scaffold_id: List[Optional[np.int64]] = []
         ordered_contig_ids: np.ndarray
-        with self.hdf_file_lock.gen_rlock(), h5py.File(self.filepath, mode='r') as f:
+        with self.hdf_file_lock.gen_rlock():
+            f = self.opened_hdf_file
             resolutions = np.array(
                 [np.int64(sdn) for sdn in sorted(
                     filter(lambda s: s.isnumeric(), f['resolutions'].keys()))],
@@ -419,7 +421,7 @@ class ChunkedFile(object):
             contig_segment_end_bins: np.int64 = end_px_excl
 
             stripe_tree: StripeTree = self.matrix_trees[resolution]
-            # 1+start because (start) bins should not be touched to the left of the query            
+            # 1+start because (start) bins should not be touched to the left of the query
             stripes_in_range = stripe_tree.get_stripes_in_segment(
                 1 + first_segment_contig_start_bins,
                 contig_segment_end_bins
@@ -429,11 +431,11 @@ class ChunkedFile(object):
 
             if len(stripes) == 0:
                 return 0, []
-            
+
             delta_in_px_between_left_query_border_and_stripe_start: np.int64 = (
                 first_segment_contig_start_bins - stripes_in_range.first_stripe_start_bins
             )
-            
+
             return delta_in_px_between_left_query_border_and_stripe_start, stripes
 
     # @lru_cache(maxsize=BLOCK_CACHE_SIZE, typed=True)
@@ -730,7 +732,8 @@ class ChunkedFile(object):
             dtype=self.dtype
         )
 
-        with self.hdf_file_lock.gen_rlock(), h5py.File(self.filepath, mode='r') as f:
+        with self.hdf_file_lock.gen_rlock():
+            f = self.opened_hdf_file
             for row_stripe_index in range(0, len(row_stripes)):
                 row_stripe: StripeDescriptor = row_stripes[row_stripe_index]
                 row_stripe_start_in_dense: np.int64 = row_stripe_starts[row_stripe_index]
@@ -1535,8 +1538,11 @@ class ChunkedFile(object):
         scaffold_info_group.attrs['scaffold_write_finished'] = True
 
     def save(self) -> None:
-        try:
-            with self.hdf_file_lock.gen_wlock(), h5py.File(self.filepath, mode='a') as f:
+        with self.hdf_file_lock.gen_wlock():
+            try:
+                self.opened_hdf_file.close()
+                self.opened_hdf_file = h5py.File(self.filepath, mode='a')
+                f = self.opened_hdf_file
                 self.dump_stripe_info(f)
                 f.flush()
                 scaffold_new_id_to_old_id = self.dump_contig_info(f)
@@ -1544,11 +1550,14 @@ class ChunkedFile(object):
                 self.dump_scaffold_info(f, scaffold_new_id_to_old_id)
                 f.flush()
                 self.clear_caches(saved_blocks=True)
-        except Exception as e:
-            print(
-                f"Exception was thrown during save process: {str(e)}\nFile might be saved incorrectly.")
-            self.state = ChunkedFile.FileState.INCORRECT
-            raise e
+                self.opened_hdf_file.close()
+            except Exception as e:
+                print(
+                    f"Exception was thrown during save process: {str(e)}\nFile might be saved incorrectly.")
+                self.state = ChunkedFile.FileState.INCORRECT
+                raise e
+            finally:
+                self.opened_hdf_file = h5py.File(self.filepath, mode='r')
 
     def close(self, need_save: bool = True) -> None:
         if need_save:
