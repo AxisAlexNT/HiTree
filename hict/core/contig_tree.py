@@ -119,7 +119,7 @@ class ContigTree:
 
     root: Optional[Node] = None
     
-    tree_lock: rwlock.RWLockWrite = rwlock.RWLockWrite(threading.RLock)
+    tree_lock: rwlock.RWLockWrite
 
     contig_name_to_id: Dict[str, int] = dict()
     contig_id_to_name: Dict[int, str] = dict()
@@ -137,33 +137,33 @@ class ContigTree:
         self.contig_name_to_id: Dict[str, int] = dict()
         self.contig_id_to_name: Dict[int, str] = dict()
         self.resolutions: np.ndarray = np.hstack((np.zeros(shape=(1,), dtype=np.int64), resolutions_ndarray))
+        self.tree_lock = rwlock.RWLockWrite(threading.RLock)
 
     contig_id_to_node_in_tree: Dict[np.int64, Node] = dict()
 
     def split_node_by_count(self, t: Optional[Node], k: np.int64) -> Tuple[Optional[Node], Optional[Node]]:
-        with self.tree_lock.gen_wlock():
-            if t is None:
-                return None, None
-            left_count: np.int64 = t.left.subtree_count if t.left is not None else 0
-            t.push()
-            if left_count >= k:
-                (t1, t2) = self.split_node_by_count(t.left, k)
-                t.left = t2
-                t.update_sizes()
-                if t1 is not None:
-                    t1.parent = None
-                if t2 is not None:
-                    t2.parent = t
-                return t1, t
-            else:
-                (t1, t2) = self.split_node_by_count(t.right, k - left_count - 1)
-                t.right = t1
-                t.update_sizes()
-                if t1 is not None:
-                    t1.parent = t
-                if t2 is not None:
-                    t2.parent = None
-                return t, t2
+        if t is None:
+            return None, None
+        left_count: np.int64 = t.left.subtree_count if t.left is not None else 0
+        t.push()
+        if left_count >= k:
+            (t1, t2) = self.split_node_by_count(t.left, k)
+            t.left = t2
+            t.update_sizes()
+            if t1 is not None:
+                t1.parent = None
+            if t2 is not None:
+                t2.parent = t
+            return t1, t
+        else:
+            (t1, t2) = self.split_node_by_count(t.right, k - left_count - 1)
+            t.right = t1
+            t.update_sizes()
+            if t1 is not None:
+                t1.parent = t
+            if t2 is not None:
+                t2.parent = None
+            return t, t2
 
     def split_node_by_length(
             self,
@@ -551,14 +551,14 @@ class ContigTree:
                 self.root = new_node
 
     def get_sizes(self) -> Tuple[Dict[np.int64, np.int64], np.int64, Dict[np.int64, np.int64]]:
-        with self.tree_lock.gen_rlock():
+        with self.tree_lock.gen_wlock():
             if self.root is not None:
                 return self.root.get_sizes()
             else:
                 return dict({0: 0}), 0, dict({0: 0})
 
     def get_node_count(self):
-        with self.tree_lock.gen_rlock():
+        with self.tree_lock.gen_wlock():
             if self.root is not None:
                 self.root.update_sizes()
                 return self.root.subtree_count
@@ -637,8 +637,8 @@ class ContigTree:
             return ContigTree.ExposedSegment(t_l, t_seg, t_gr)
 
     def commit_exposed_segment(self, segm: ExposedSegment):
-        (t_l, t_seg, t_gr) = segm
         with self.tree_lock.gen_wlock():
+            (t_l, t_seg, t_gr) = segm        
             t_le = self.merge_nodes(t_l, t_seg)
             self.root = self.merge_nodes(t_le, t_gr)
 
@@ -684,11 +684,11 @@ class ContigTree:
         ContigTree.traverse_node(t.right, f)
 
     def traverse(self, f: Callable[[Node], None]):
-        with self.tree_lock.gen_rlock():
+        with self.tree_lock.gen_wlock():
             ContigTree.traverse_node(self.root, f)
 
     def traverse_at_resolution(self, resolution: np.int64, exclude_hidden: bool, f: Callable[[Node], None]):
-        with self.tree_lock.gen_rlock():
+        with self.tree_lock.gen_wlock():
             ContigTree.traverse_nodes_at_resolution(self.root, resolution, exclude_hidden, f)
 
     # def leftmost(self):

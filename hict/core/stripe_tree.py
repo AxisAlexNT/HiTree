@@ -357,9 +357,7 @@ class StripeTree(object):
         first_stripe_start_bins: np.int64
 
     def get_stripes_in_segment(self, start_bins: np.int64, end_bins: np.int64) -> StripesInRange:
-        with self.tree_lock.gen_rlock():
-            with self.cache.cache_lock.gen_rlock():
-                return self.cache.get_stripes_in_segment(start_bins, end_bins)
+        return self.cache.get_stripes_in_segment(start_bins, end_bins)
         # with self.tree_lock.gen_wlock():
         #     result: List[StripeDescriptor] = []
         #     es: StripeTree.ExposedSegment = self.expose_segment_by_length(
