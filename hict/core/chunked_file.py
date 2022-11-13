@@ -7,10 +7,10 @@ from typing import Set, Union
 
 import h5py
 import numpy as np
-from cachetools import LRUCache, cachedmethod
-from cachetools.keys import hashkey
+# from cachetools import LRUCache, cachedmethod
+# from cachetools.keys import hashkey
 from readerwriterlock import rwlock
-from scipy.sparse import coo_matrix
+from scipy.sparse import coo_matrix, coo_array
 
 from hict.core.AGPProcessor import *
 from hict.core.FASTAProcessor import FASTAProcessor
@@ -60,10 +60,10 @@ class ChunkedFile(object):
         self.dense_submatrix_size: Dict[np.int64,
                                         np.int64] = dict()  # Resolution -> MSS
         self.block_cache_size = block_cache_size
-        self.block_cache = LRUCache(maxsize=self.block_cache_size)
-        self.block_intersection_cache = LRUCache(maxsize=self.block_cache_size)
-        self.block_cache_lock: Lock = threading.Lock()
-        self.block_intersection_cache_lock: Lock = threading.Lock()
+        # self.block_cache = LRUCache(maxsize=self.block_cache_size)
+        # self.block_intersection_cache = LRUCache(maxsize=self.block_cache_size)
+        # self.block_cache_lock: Lock = threading.Lock()
+        # self.block_intersection_cache_lock: Lock = threading.Lock()
         self.scaffold_holder: ScaffoldHolder = ScaffoldHolder()
         self.dtype: Optional[np.dtype] = None
         self.hdf_file_lock: rwlock.RWLockWrite = rwlock.RWLockWrite()
@@ -192,13 +192,14 @@ class ChunkedFile(object):
         self.state = ChunkedFile.FileState.OPENED
 
     def clear_caches(self, saved_blocks: bool = False):
-        if saved_blocks:
-            if self.load_saved_dense_block.cache_lock is not None:
-                with self.load_saved_dense_block.cache_lock(self):
-                    self.load_saved_dense_block.cache(self).clear()
-        if self.get_block_intersection_as_dense_matrix.cache_lock is not None:
-            with self.get_block_intersection_as_dense_matrix.cache_lock(self):
-                self.get_block_intersection_as_dense_matrix.cache(self).clear()
+        return
+        # if saved_blocks:
+        #     if self.load_saved_dense_block.cache_lock is not None:
+        #         with self.load_saved_dense_block.cache_lock(self):
+        #             self.load_saved_dense_block.cache(self).clear()
+        # if self.get_block_intersection_as_dense_matrix.cache_lock is not None:
+        #     with self.get_block_intersection_as_dense_matrix.cache_lock(self):
+        #         self.get_block_intersection_as_dense_matrix.cache(self).clear()
 
     def restore_scaffolds(self, f: h5py.File):
         if 'scaffold_info' not in f['/'].keys():
@@ -357,38 +358,44 @@ class ChunkedFile(object):
         List[StripeDescriptor]
     ]:
         if exclude_hidden_contigs:
-            exposed_contig_segment: ContigTree.ExposedSegment = self.contig_tree.expose_segment(
-                resolution,
+            # exposed_contig_segment: ContigTree.ExposedSegment = self.contig_tree.expose_segment(
+            #     resolution,
+            #     start_px_incl,
+            #     end_px_excl,
+            #     QueryLengthUnit.PIXELS
+            # )
+            # first_segment_contig_start_bins = (
+            #     exposed_contig_segment.less.get_sizes(
+            #     )[0][resolution] if exposed_contig_segment.less is not None else 0
+            # )
+            # first_segment_contig_start_px = (
+            #     exposed_contig_segment.less.get_sizes(
+            #     )[2][resolution] if exposed_contig_segment.less is not None else 0
+            # )
+            # contig_segment_end_bins = first_segment_contig_start_bins + (
+            #     exposed_contig_segment.segment.get_sizes()[0][resolution] if (
+            #         exposed_contig_segment.segment is not None
+            #     ) else 0
+            # )
+            # if exposed_contig_segment.segment is None:
+            #     self.contig_tree.commit_exposed_segment(exposed_contig_segment)
+            #     return 0, []
+            # self.contig_tree.commit_exposed_segment(exposed_contig_segment)
+
+            stripe_tree: StripeTree = self.matrix_trees[resolution]
+
+            # stripes_in_range = stripe_tree.get_stripes_in_segment(
+            #     1 + first_segment_contig_start_bins,
+            #     # first_segment_contig_start_bins,
+            #     contig_segment_end_bins
+            # )
+            
+            stripes_in_range = stripe_tree.get_stripes_in_segment(
                 start_px_incl,
                 end_px_excl,
                 QueryLengthUnit.PIXELS
             )
-            first_segment_contig_start_bins = (
-                exposed_contig_segment.less.get_sizes(
-                )[0][resolution] if exposed_contig_segment.less is not None else 0
-            )
-            first_segment_contig_start_px = (
-                exposed_contig_segment.less.get_sizes(
-                )[2][resolution] if exposed_contig_segment.less is not None else 0
-            )
-            contig_segment_end_bins = first_segment_contig_start_bins + (
-                exposed_contig_segment.segment.get_sizes()[0][resolution] if (
-                    exposed_contig_segment.segment is not None
-                ) else 0
-            )
-            if exposed_contig_segment.segment is None:
-                self.contig_tree.commit_exposed_segment(exposed_contig_segment)
-                return 0, []
-            self.contig_tree.commit_exposed_segment(exposed_contig_segment)
-
-            stripe_tree: StripeTree = self.matrix_trees[resolution]
-
-            stripes_in_range = stripe_tree.get_stripes_in_segment(
-                1 + first_segment_contig_start_bins,
-                # first_segment_contig_start_bins,
-                contig_segment_end_bins
-            )
-
+            
             stripes: List[StripeDescriptor] = list(filter(
                 lambda s: (
                     s.contig_descriptor.presence_in_resolution[resolution] in (
@@ -402,11 +409,15 @@ class ChunkedFile(object):
             if len(stripes) == 0:
                 return 0, []
 
-            assert start_px_incl >= first_segment_contig_start_px, "Contig starts after its covered query?"
+            # assert start_px_incl >= first_segment_contig_start_px, "Contig starts after its covered query?"
 
+            # delta_in_px_between_left_query_border_and_stripe_start: np.int64 = (
+            #     start_px_incl - first_segment_contig_start_px +
+            #     stripes_in_range.first_stripe_start_bins - first_segment_contig_start_bins
+            # )
+            
             delta_in_px_between_left_query_border_and_stripe_start: np.int64 = (
-                start_px_incl - first_segment_contig_start_px +
-                stripes_in_range.first_stripe_start_bins - first_segment_contig_start_bins
+                start_px_incl - stripes_in_range.first_stripe_start_px
             )
 
             query_length: np.int64 = end_px_excl - start_px_incl
@@ -438,69 +449,110 @@ class ChunkedFile(object):
 
             return delta_in_px_between_left_query_border_and_stripe_start, stripes
 
-    # @lru_cache(maxsize=BLOCK_CACHE_SIZE, typed=True)
-    @cachedmethod(cache=lambda s: s.block_cache,
-                  key=lambda s, f, r, rb, cb: hashkey(
-                      (r, rb.stripe_id, cb.stripe_id)),
-                  lock=lambda s: s.block_cache_lock)
-    def load_saved_dense_block(
-            self,
-            f: h5py.File,
-            resolution: np.int64,
-            row_block: StripeDescriptor,
-            col_block: StripeDescriptor
-    ) -> Tuple[np.ndarray, bool]:
-        r: np.int64 = row_block.stripe_id
-        c: np.int64 = col_block.stripe_id
+    # # @lru_cache(maxsize=BLOCK_CACHE_SIZE, typed=True)
+    # # @cachedmethod(cache=lambda s: s.block_cache,
+    # #               key=lambda s, f, r, rb, cb: hashkey(
+    # #                   (r, rb.stripe_id, cb.stripe_id)),
+    # #               lock=lambda s: s.block_cache_lock)
+    # def load_saved_dense_block(
+    #         self,
+    #         f: h5py.File,
+    #         resolution: np.int64,
+    #         row_block: StripeDescriptor,
+    #         col_block: StripeDescriptor
+    # ) -> Tuple[np.ndarray, bool]:
+    #     r: np.int64 = row_block.stripe_id
+    #     c: np.int64 = col_block.stripe_id
 
-        blocks_dir: h5py.Group = f[f'/resolutions/{resolution}/treap_coo']
-        stripes_count: np.int64 = blocks_dir.attrs['stripes_count']
-        block_index_in_datasets: np.int64 = r * stripes_count + c
+    #     blocks_dir: h5py.Group = f[f'/resolutions/{resolution}/treap_coo']
+    #     stripes_count: np.int64 = blocks_dir.attrs['stripes_count']
+    #     block_index_in_datasets: np.int64 = r * stripes_count + c
 
-        block_lengths: h5py.Dataset = blocks_dir['block_length']
-        block_length = block_lengths[block_index_in_datasets]
-        is_empty: bool = (block_length <= 0)
+    #     block_lengths: h5py.Dataset = blocks_dir['block_length']
+    #     block_length = block_lengths[block_index_in_datasets]
+    #     is_empty: bool = (block_length <= 0)
 
-        result_matrix: np.ndarray
+    #     result_matrix: np.ndarray
 
-        if is_empty:
-            # This block was empty and not exported, so it is all zeros
-            result_matrix = np.zeros(shape=(row_block.stripe_length_bins, col_block.stripe_length_bins),
-                                     dtype=self.dtype)
-        else:
-            block_offsets: h5py.Dataset = blocks_dir['block_offset']
-            block_offset = block_offsets[block_index_in_datasets]
+    #     if is_empty:
+    #         # This block was empty and not exported, so it is all zeros
+    #         result_matrix = np.zeros(shape=(row_block.stripe_length_bins, col_block.stripe_length_bins),
+    #                                  dtype=self.dtype)
+    #     else:
+    #         block_offsets: h5py.Dataset = blocks_dir['block_offset']
+    #         block_offset = block_offsets[block_index_in_datasets]
 
-            is_dense: bool = (block_offset < 0)
+    #         is_dense: bool = (block_offset < 0)
 
-            if is_dense:
-                dense_blocks: h5py.Dataset = blocks_dir['dense_blocks']
-                index_in_dense_blocks: np.int64 = -(block_offset + 1)
-                result_matrix = dense_blocks[index_in_dense_blocks, 0, :, :]
-            else:
-                block_vals: h5py.Dataset = blocks_dir['block_vals']
-                block_finish = block_offset + block_length
-                block_rows: h5py.Dataset = blocks_dir['block_rows']
-                block_cols: h5py.Dataset = blocks_dir['block_cols']
-                mx = coo_matrix(
-                    (
-                        block_vals[block_offset:block_finish],
-                        (
-                            block_rows[block_offset:block_finish],
-                            block_cols[block_offset:block_finish]
-                        )
-                    ),
-                    shape=(row_block.stripe_length_bins,
-                           col_block.stripe_length_bins)
-                )
-                result_matrix = mx.toarray()
+    #         if is_dense:
+    #             dense_blocks: h5py.Dataset = blocks_dir['dense_blocks']
+    #             index_in_dense_blocks: np.int64 = -(block_offset + 1)
+    #             result_matrix = dense_blocks[index_in_dense_blocks, 0, :, :]
+    #         else:
+    #             block_vals: h5py.Dataset = blocks_dir['block_vals']
+    #             block_finish = block_offset + block_length
+    #             block_rows: h5py.Dataset = blocks_dir['block_rows']
+    #             block_cols: h5py.Dataset = blocks_dir['block_cols']
+    #             mx = coo_matrix(
+    #                 (
+    #                     block_vals[block_offset:block_finish],
+    #                     (
+    #                         block_rows[block_offset:block_finish],
+    #                         block_cols[block_offset:block_finish]
+    #                     )
+    #                 ),
+    #                 shape=(row_block.stripe_length_bins,
+    #                        col_block.stripe_length_bins)
+    #             )
+    #             result_matrix = mx.toarray()
 
-        return result_matrix, is_empty
+    #     return result_matrix, is_empty
 
-    @cachedmethod(cache=lambda s: s.block_intersection_cache,
-                  key=lambda s, f, r, rb, cb: hashkey(
-                      (r, rb.stripe_id, cb.stripe_id)),
-                  lock=lambda s: s.block_intersection_cache_lock)
+    def flip_dense_2d_fetched_block(
+        self,
+        mx_as_array: np.ndarray,
+        row_block: StripeDescriptor,
+        col_block: StripeDescriptor,
+        needs_transpose: bool
+    ) -> np.ndarray:
+        if row_block.stripe_id == col_block.stripe_id:
+            mx_as_array = np.where(mx_as_array, mx_as_array, mx_as_array.T)
+        if row_block.contig_descriptor.direction == ContigDirection.REVERSED:
+            mx_as_array = np.flip(mx_as_array, axis=0)
+            # mx_as_array = mx_as_array[::-1, :]
+        if col_block.contig_descriptor.direction == ContigDirection.REVERSED:
+            mx_as_array = np.flip(mx_as_array, axis=1)
+            # mx_as_array = mx_as_array[:, ::-1]
+        if needs_transpose:
+            mx_as_array = mx_as_array.T
+        return mx_as_array
+
+    def sparse_to_dense(self, sparse_mx: coo_array) -> np.ndarray:
+        return sparse_mx.todense()
+
+    def flip_sparse_2d_fetched_block(
+        self,
+        mx: coo_array,
+        row_block: StripeDescriptor,
+        col_block: StripeDescriptor,
+        needs_transpose: bool
+    ) -> np.ndarray:
+        if needs_transpose:
+            mx = mx.transpose(copy=False)
+        if row_block.contig_descriptor.direction == ContigDirection.REVERSED:
+            mx = mx[::-1, :]
+        if col_block.contig_descriptor.direction == ContigDirection.REVERSED:
+            mx = mx[:, ::-1]
+        mx_as_array = self.sparse_to_dense(mx)
+        if row_block.stripe_id == col_block.stripe_id:
+            mx_as_array = np.where(mx_as_array, mx_as_array, mx_as_array.T)
+        return mx_as_array
+
+    # @cachedmethod(cache=lambda s: s.block_intersection_cache,
+    #               key=lambda s, f, r, rb, cb: hashkey(
+    #                   (r, rb.stripe_id, cb.stripe_id)),
+    #               lock=lambda s: s.block_intersection_cache_lock)
+
     def get_block_intersection_as_dense_matrix(
             self,
             f: h5py.File,
@@ -516,28 +568,53 @@ class ChunkedFile(object):
         mx_as_array: np.ndarray
         is_empty: bool
 
-        mx_as_array, is_empty = self.load_saved_dense_block(
-            f, resolution, row_block, col_block)
+        # mx_as_array, is_empty = self.load_saved_dense_block(f, resolution, row_block, col_block)
 
-        result: np.ndarray
+        r: np.int64 = row_block.stripe_id
+        c: np.int64 = col_block.stripe_id
+
+        blocks_dir: h5py.Group = f[f'/resolutions/{resolution}/treap_coo']
+        stripes_count: np.int64 = blocks_dir.attrs['stripes_count']
+        block_index_in_datasets: np.int64 = r * stripes_count + c
+
+        block_lengths: h5py.Dataset = blocks_dir['block_length']
+        block_length = block_lengths[block_index_in_datasets]
+        is_empty: bool = (block_length <= 0)
 
         if is_empty:
-            result = mx_as_array
+            mx_as_array = np.zeros(shape=(
+                row_block.stripe_length_bins, col_block.stripe_length_bins), dtype=self.dtype)
+            if needs_transpose:
+                mx_as_array = mx_as_array.T
         else:
-            # Block is square and lies on a diagonal:
-            if row_block.stripe_id == col_block.stripe_id:
-                mx_as_array = np.where(mx_as_array, mx_as_array, mx_as_array.T)
+            block_offsets: h5py.Dataset = blocks_dir['block_offset']
+            block_offset = block_offsets[block_index_in_datasets]
+            is_dense: bool = (block_offset < 0)
 
-            if row_block.contig_descriptor.direction == ContigDirection.REVERSED:
-                mx_as_array = np.flip(mx_as_array, axis=0)
-            if col_block.contig_descriptor.direction == ContigDirection.REVERSED:
-                mx_as_array = np.flip(mx_as_array, axis=1)
-
-            result = mx_as_array
-
-        if needs_transpose:
-            result = result.T
-        return result
+            if is_dense:
+                dense_blocks: h5py.Dataset = blocks_dir['dense_blocks']
+                index_in_dense_blocks: np.int64 = -(block_offset + 1)
+                mx_as_array = dense_blocks[index_in_dense_blocks, 0, :, :]
+                mx_as_array = self.flip_dense_2d_fetched_block(mx_as_array, row_block, col_block, needs_transpose)
+            else:
+                block_vals: h5py.Dataset = blocks_dir['block_vals']
+                block_finish = block_offset + block_length
+                block_rows: h5py.Dataset = blocks_dir['block_rows']
+                block_cols: h5py.Dataset = blocks_dir['block_cols']
+                mx = coo_array(
+                    (
+                        block_vals[block_offset:block_finish],
+                        (
+                            block_rows[block_offset:block_finish],
+                            block_cols[block_offset:block_finish]
+                        )
+                    ),
+                    shape=(row_block.stripe_length_bins,
+                           col_block.stripe_length_bins)
+                )
+                mx_as_array = self.flip_sparse_2d_fetched_block(mx, row_block, col_block, needs_transpose)
+                
+        return mx_as_array
 
     def get_submatrix(
             self,
@@ -734,6 +811,7 @@ class ChunkedFile(object):
 
         with self.hdf_file_lock.gen_rlock():
             f = self.opened_hdf_file
+            print(f"Getting coverage matrix for query ({start_row_px_incl}, {start_col_px_incl})..({end_row_px_excl}, {end_col_px_excl}) requires intersecting {len(row_stripes)}x{len(col_stripes)} stripes", file=open("./internal-profiler/req.txt", "a"))
             for row_stripe_index in range(0, len(row_stripes)):
                 row_stripe: StripeDescriptor = row_stripes[row_stripe_index]
                 row_stripe_start_in_dense: np.int64 = row_stripe_starts[row_stripe_index]

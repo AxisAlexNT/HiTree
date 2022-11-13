@@ -6,7 +6,7 @@ from typing import Optional, Tuple, Callable, List, NamedTuple
 
 import numpy as np
 
-from hict.core.common import StripeDescriptor, ContigDirection, ContigHideType
+from hict.core.common import QueryLengthUnit, StripeDescriptor, ContigDirection, ContigHideType
 
 from readerwriterlock import rwlock
 
@@ -355,9 +355,10 @@ class StripeTree(object):
     class StripesInRange:
         stripes: List[StripeDescriptor]
         first_stripe_start_bins: np.int64
+        first_stripe_start_px: np.int64
 
-    def get_stripes_in_segment(self, start_bins: np.int64, end_bins: np.int64) -> StripesInRange:
-        return self.cache.get_stripes_in_segment(start_bins, end_bins)
+    def get_stripes_in_segment(self, start: np.int64, end: np.int64, units: QueryLengthUnit = QueryLengthUnit.BINS) -> StripesInRange:
+        return self.cache.get_stripes_in_segment(start, end, units)
         # with self.tree_lock.gen_wlock():
         #     result: List[StripeDescriptor] = []
         #     es: StripeTree.ExposedSegment = self.expose_segment_by_length(
@@ -444,6 +445,7 @@ class StripeTreeCache(object):
     length_bins: np.ndarray
     # prefix_sum_length_bp: np.ndarray
     prefix_sum_length_bins: np.ndarray
+    prefix_sum_length_px: np.ndarray
     stripe_count: np.int64
     cache_lock: rwlock.RWLockWrite
     is_valid: bool
@@ -480,6 +482,13 @@ class StripeTreeCache(object):
             self.stripe_order[index] = (node.stripe_descriptor.stripe_id)
             # self.length_bp[index] = node.stripe_descriptor.stripe_length_bp
             self.length_bins[index] = node.stripe_descriptor.stripe_length_bins
+            self.length_px[index] = (
+                (
+                    node.stripe_descriptor.stripe_length_bins
+                ) if node.stripe_descriptor.contig_descriptor.presence_in_resolution[self.stripe_tree.resolution] in (
+                    ContigHideType.AUTO_SHOWN, ContigHideType.FORCED_SHOWN
+                ) else 0
+            )
             index += 1
 
         with self.cache_lock.gen_wlock():
@@ -492,6 +501,8 @@ class StripeTreeCache(object):
                 # self.length_bp = np.zeros(
                 #     shape=self.stripe_count, dtype=np.int64)
                 self.length_bins = np.zeros(
+                    shape=self.stripe_count, dtype=np.int64)
+                self.length_px = np.zeros(
                     shape=self.stripe_count, dtype=np.int64)
                 self.stripe_tree.traverse(traverse_fn)
 
@@ -506,6 +517,10 @@ class StripeTreeCache(object):
                     self.length_bins,
                     dtype=np.int64
                 )
+                self.prefix_sum_length_px = np.cumsum(
+                    self.length_px,
+                    dtype=np.int64
+                )
             else:
                 # np.cumsum(
                 #     self.length_bp,
@@ -517,11 +532,18 @@ class StripeTreeCache(object):
                     dtype=np.int64,
                     out=self.prefix_sum_length_bins[borders[0]:borders[1]]
                 )
+                np.cumsum(
+                    self.length_px[borders[0]:borders[1]],
+                    dtype=np.int64,
+                    out=self.prefix_sum_length_px[borders[0]:borders[1]]
+                )
                 if borders[0] != 0:
                     # self.prefix_sum_length_bp[borders[0]:borders[1]
                     #                           ] += self.prefix_sum_length_bp[borders[0]-1]
                     self.prefix_sum_length_bins[borders[0]:borders[1]
                                                 ] += self.prefix_sum_length_bins[borders[0]-1]
+                    self.prefix_sum_length_px[borders[0]:borders[1]
+                                              ] += self.prefix_sum_length_px[borders[0]-1]
 
     def partial_copy_stripes(self, borders: Tuple[int, int]) -> None:
         index: int = borders[0]
@@ -531,6 +553,13 @@ class StripeTreeCache(object):
             self.stripe_order[index] = (node.stripe_descriptor.stripe_id)
             # self.length_bp[index] = node.stripe_descriptor.stripe_length_bp
             self.length_bins[index] = node.stripe_descriptor.stripe_length_bins
+            self.length_px[index] = (
+                (
+                    node.stripe_descriptor.stripe_length_bins
+                ) if node.stripe_descriptor.contig_descriptor.presence_in_resolution[self.stripe_tree.resolution] in (
+                    ContigHideType.AUTO_SHOWN, ContigHideType.FORCED_SHOWN
+                ) else 0
+            )
             index += 1
 
         with self.cache_lock.gen_wlock():
@@ -571,18 +600,37 @@ class StripeTreeCache(object):
                 self.is_valid = True
                 self.cv_is_valid.notify_all()
 
-    def get_stripes_in_segment(self, start_bins: np.int64, end_bins: np.int64) -> StripeTree.StripesInRange:
+    def get_stripes_in_segment(self, start: np.int64, end: np.int64, units: QueryLengthUnit = QueryLengthUnit.BINS) -> StripeTree.StripesInRange:
+        assert units in (QueryLengthUnit.BINS, QueryLengthUnit.PIXELS)
         with self.cv_is_valid:
             while not self.cv_is_valid.wait_for(lambda: self.is_valid, timeout=1.0):
                 self.update()
             with self.cache_lock.gen_rlock():
                 self.cv_is_valid.wait_for(lambda: self.is_valid)
-                istart, iend = np.searchsorted(
-                    self.prefix_sum_length_bins, [start_bins, end_bins])
+                prefix_array = (
+                    (
+                        self.prefix_sum_length_px
+                    ) if (
+                        units == QueryLengthUnit.PIXELS
+                    ) else self.prefix_sum_length_bins
+                )
+                istart, iend = np.searchsorted(prefix_array, [start, end])
                 stripe_indices = self.stripe_order[istart:iend+1]
+                if units == QueryLengthUnit.PIXELS:
+                    stripe_indices = list(filter(
+                        lambda i: (
+                            self.stripe_tree.stripe_descriptors_by_id[i].contig_descriptor.presence_in_resolution[self.stripe_tree.resolution] in (
+                                ContigHideType.AUTO_SHOWN,
+                                ContigHideType.FORCED_SHOWN
+                            )
+                        ),
+                        stripe_indices
+                    ))
+                total_length = sum((self.stripe_tree.stripe_descriptors_by_id[i].stripe_length_bins for i in stripe_indices))
+                assert total_length >= (end-start), "Cache returned stripes less than query?"
                 return StripeTree.StripesInRange(
                     list(
                         map(lambda i: self.stripe_tree.stripe_descriptors_by_id[i], stripe_indices)),
-                    self.prefix_sum_length_bins[istart -
-                                                1] if istart > 0 else np.int64(0)
+                    self.prefix_sum_length_bins[istart - 1] if istart > 0 else np.int64(0),
+                    self.prefix_sum_length_px[istart - 1] if istart > 0 else np.int64(0)
                 )
