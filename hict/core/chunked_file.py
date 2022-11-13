@@ -811,7 +811,7 @@ class ChunkedFile(object):
 
         with self.hdf_file_lock.gen_rlock():
             f = self.opened_hdf_file
-            print(f"Getting coverage matrix for query ({start_row_px_incl}, {start_col_px_incl})..({end_row_px_excl}, {end_col_px_excl}) requires intersecting {len(row_stripes)}x{len(col_stripes)} stripes", file=open("./internal-profiler/req.txt", "a"))
+            # print(f"Getting coverage matrix for query ({start_row_px_incl}, {start_col_px_incl})..({end_row_px_excl}, {end_col_px_excl}) requires intersecting {len(row_stripes)}x{len(col_stripes)} stripes", file=open("./internal-profiler/req.txt", "a"))
             for row_stripe_index in range(0, len(row_stripes)):
                 row_stripe: StripeDescriptor = row_stripes[row_stripe_index]
                 row_stripe_start_in_dense: np.int64 = row_stripe_starts[row_stripe_index]
