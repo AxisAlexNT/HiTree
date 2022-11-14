@@ -10,7 +10,7 @@ import numpy as np
 # from cachetools import LRUCache, cachedmethod
 # from cachetools.keys import hashkey
 from readerwriterlock import rwlock
-from scipy.sparse import coo_matrix, coo_array
+from scipy.sparse import coo_array, csr_array, csc_array
 
 from hict.core.AGPProcessor import *
 from hict.core.FASTAProcessor import FASTAProcessor
@@ -527,18 +527,15 @@ class ChunkedFile(object):
             mx_as_array = mx_as_array.T
         return mx_as_array
 
-    def sparse_to_dense(self, sparse_mx: coo_array) -> np.ndarray:
+    def sparse_to_dense(self, sparse_mx: Union[coo_array, csr_array, csc_array]) -> np.ndarray:
         return sparse_mx.todense()
 
     def flip_sparse_2d_fetched_block(
         self,
-        mx: coo_array,
+        mx: csr_array,
         row_block: StripeDescriptor,
-        col_block: StripeDescriptor,
-        needs_transpose: bool
+        col_block: StripeDescriptor
     ) -> np.ndarray:
-        if needs_transpose:
-            mx = mx.transpose(copy=False)
         if row_block.contig_descriptor.direction == ContigDirection.REVERSED:
             mx = mx[::-1, :]
         if col_block.contig_descriptor.direction == ContigDirection.REVERSED:
@@ -612,7 +609,10 @@ class ChunkedFile(object):
                     shape=(row_block.stripe_length_bins,
                            col_block.stripe_length_bins)
                 )
-                mx_as_array = self.flip_sparse_2d_fetched_block(mx, row_block, col_block, needs_transpose)
+                if needs_transpose:
+                    mx = mx.transpose(copy=False)
+                mx = mx.tocsr()
+                mx_as_array = self.flip_sparse_2d_fetched_block(mx, row_block, col_block)
                 
         return mx_as_array
 

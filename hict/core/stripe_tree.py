@@ -314,12 +314,13 @@ class StripeTree(object):
                 start_bins, end_bins)
             if exposed_segment.segment is not None:
                 exposed_segment.segment.reverse_subtree()
-                start_order = exposed_segment.less.get_sizes().block_count
+                start_order = exposed_segment.less.get_sizes().block_count if exposed_segment.less is not None else 0
                 end_order = exposed_segment.segment.get_sizes().block_count + start_order
             self.commit_exposed_segment(exposed_segment, update_cache=False)
             if update_cache and start_order is not None and end_order is not None:
                 with self.cache.cache_lock.gen_wlock():
                     self.cache.update((start_order, end_order))
+                    #self.cache.update
 
     @staticmethod
     def find_node_by_length(t: Optional[Node], length_bins: np.int64) -> Optional[Node]:
@@ -465,6 +466,8 @@ class StripeTreeCache(object):
             borders (Optional[Tuple[int, int]], optional): Left border(inclusive) and right border(exclusive) of changes in terms of stripes' orders. Defaults to None.
         """
         with self.cache_lock.gen_wlock():
+            if borders is not None and max(borders) >= len(self.stripe_order):
+                borders = None
             if borders is None:
                 self.copy_stripes()
             else:
@@ -550,6 +553,7 @@ class StripeTreeCache(object):
 
         def traverse_fn(node: StripeTree.Node) -> None:
             nonlocal index
+            nonlocal self
             self.stripe_order[index] = (node.stripe_descriptor.stripe_id)
             # self.length_bp[index] = node.stripe_descriptor.stripe_length_bp
             self.length_bins[index] = node.stripe_descriptor.stripe_length_bins
