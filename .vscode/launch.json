@@ -46,6 +46,16 @@
                 ".\tests\test_StripeTreeSplitMergeProperties.py",                
             ],
             "justMyCode": true
+        }, {
+            "name": "[win] Debug Compare with Cooler",
+            "type": "python",
+            "request": "launch",
+            "module": "pytest",
+            "args": [
+                "-xvv",
+                "tests/test_CompareWithCooler.py"
+            ],
+            "justMyCode": true
         },
     ]
 }

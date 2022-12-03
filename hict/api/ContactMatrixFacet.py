@@ -218,7 +218,7 @@ class ContactMatrixFacet(object):
 
         if resolution not in f.resolutions:
             raise ContactMatrixFacet.IncorrectResolution()
-        submatrix: np.ndarray
+        # submatrix_and_weights: Tuple[np.ndarray, np.ndarray, np.ndarray]
         if units == QueryLengthUnit.BASE_PAIRS:
             # (x|y)(0|1)_bp -> (x|y)(0|1)_px using 1:1 "resolution" to find start and ending contigs
             # In start contig, find which bin (pixel) this query falls into,
@@ -235,7 +235,7 @@ class ContactMatrixFacet(object):
             y1_in_contig_px = ContactMatrixFacet.get_px_by_bp(
                 f, y1, resolution)
 
-            submatrix = f.get_submatrix(
+            submatrix_and_weights = f.get_submatrix(
                 resolution,
                 x0_in_contig_px.global_position_px,
                 y0_in_contig_px.global_position_px,
@@ -247,7 +247,7 @@ class ContactMatrixFacet(object):
             )
         else:
             # submatrix = f.get_submatrix(resolution, x0, y0, 1 + x1, 1 + y1, units, exclude_hidden_contigs)
-            submatrix = f.get_submatrix(
+            submatrix_and_weights = f.get_submatrix(
                 resolution,
                 x0, y0,
                 x1, y1,
@@ -256,7 +256,7 @@ class ContactMatrixFacet(object):
                 fetch_cooler_weights
             )
 
-        return submatrix
+        return submatrix_and_weights
 
     @staticmethod
     def apply_cooler_balance_to_dense_matrix(

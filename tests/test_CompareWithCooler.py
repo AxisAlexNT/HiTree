@@ -59,7 +59,7 @@ def test_resolutions_match():
 
 # @pytest.mark.randomize(resolution=int, choices=resolutions_mcool, ncalls=len(resolutions_mcool))
 # , derandomize=True, report_multiple_bugs=True)
-@settings(max_examples=500, deadline=2000)
+@settings(max_examples=500, deadline=5000)
 @given(
     resolution=st.sampled_from(resolutions_mcool),
     start_row_incl_bp=st.integers(min_value=0, max_value=total_bp_length),
@@ -102,7 +102,15 @@ def test_compare_with_cooler(
                                                       start_col_incl:end_col_excl]
     with hict_file_lock.gen_wlock() as hfl:
         my_dense = ContactMatrixFacet.get_dense_submatrix(
-            hict_file, resolution, start_row_incl, start_col_incl, end_row_excl, end_col_excl, units=QueryLengthUnit.BINS, exclude_hidden_contigs=False)
+            hict_file,
+            resolution,
+            start_row_incl,
+            start_col_incl,
+            end_row_excl,
+            end_col_excl,
+            units=QueryLengthUnit.BINS,
+            exclude_hidden_contigs=False
+        )[0]
     my_dense = np.pad(my_dense, [(0, end_row_excl-start_row_incl-my_dense.shape[0]), (0,
                       end_col_excl-start_col_incl-my_dense.shape[1])], mode='constant', constant_values=0)
     assert (
@@ -159,7 +167,15 @@ def test_compare_with_cooler_by_bins(
                                                       start_col_incl:end_col_excl]
     with hict_file_lock.gen_wlock() as hfl:
         my_dense = ContactMatrixFacet.get_dense_submatrix(
-            hict_file, resolution, start_row_incl, start_col_incl, end_row_excl, end_col_excl, units=QueryLengthUnit.BINS, exclude_hidden_contigs=False)
+            hict_file,
+            resolution,
+            start_row_incl,
+            start_col_incl,
+            end_row_excl,
+            end_col_excl,
+            units=QueryLengthUnit.BINS,
+            exclude_hidden_contigs=False
+        )[0]
     my_dense = np.pad(my_dense, [(0, end_row_excl-start_row_incl-my_dense.shape[0]), (0,
                       end_col_excl-start_col_incl-my_dense.shape[1])], mode='constant', constant_values=0)
     assert (
@@ -208,7 +224,15 @@ def test_compare_square_queries_with_cooler(
                                                       start_col_incl:end_col_excl]
     with hict_file_lock.gen_wlock() as hfl:
         my_dense = ContactMatrixFacet.get_dense_submatrix(
-            hict_file, resolution, start_row_incl, start_col_incl, end_row_excl, end_col_excl, units=QueryLengthUnit.BINS, exclude_hidden_contigs=False)
+            hict_file,
+            resolution,
+            start_row_incl,
+            start_col_incl,
+            end_row_excl,
+            end_col_excl,
+            units=QueryLengthUnit.BINS,
+            exclude_hidden_contigs=False
+        )[0]
     my_dense = np.pad(my_dense, [(0, query_size-my_dense.shape[0]), (0,
                       query_size-my_dense.shape[1])], mode='constant', constant_values=0)
     assert (
@@ -256,7 +280,15 @@ def test_compare_square_queries_with_cooler_by_bins(
                                                       start_col_incl:end_col_excl]
     with hict_file_lock.gen_wlock() as hfl:
         my_dense = ContactMatrixFacet.get_dense_submatrix(
-            hict_file, resolution, start_row_incl, start_col_incl, end_row_excl, end_col_excl, units=QueryLengthUnit.BINS, exclude_hidden_contigs=False)
+            hict_file,
+            resolution,
+            start_row_incl,
+            start_col_incl,
+            end_row_excl,
+            end_col_excl,
+            units=QueryLengthUnit.BINS,
+            exclude_hidden_contigs=False
+        )[0]
     my_dense = np.pad(my_dense, [(0, query_size-my_dense.shape[0]), (0,
                       query_size-my_dense.shape[1])], mode='constant', constant_values=0)
     assert (
@@ -306,7 +338,15 @@ def test_compare_rectangular_queries_with_cooler(
                                                       start_col_incl:end_col_excl]
     with hict_file_lock.gen_wlock() as hfl:
         my_dense = ContactMatrixFacet.get_dense_submatrix(
-            hict_file, resolution, start_row_incl, start_col_incl, end_row_excl, end_col_excl, units=QueryLengthUnit.BINS, exclude_hidden_contigs=False)
+            hict_file,
+            resolution,
+            start_row_incl,
+            start_col_incl,
+            end_row_excl,
+            end_col_excl,
+            units=QueryLengthUnit.BINS,
+            exclude_hidden_contigs=False
+        )[0]
     my_dense = np.pad(my_dense, [(0, query_size_row-my_dense.shape[0]), (0,
                       query_size_col-my_dense.shape[1])], mode='constant', constant_values=0)
     assert (
@@ -339,7 +379,9 @@ def test_hict_file_should_be_symmetric(
     end_col_excl_bp,
 ):
     matrix_size_bins = ContactMatrixFacet.get_matrix_size_bins(
-        hict_file, resolution)
+        hict_file,
+        resolution
+    )
     start_row_incl = (start_row_incl_bp // resolution) % matrix_size_bins
     start_col_incl = (start_col_incl_bp // resolution) % matrix_size_bins
     end_row_excl = (end_row_excl_bp // resolution) % matrix_size_bins
@@ -356,9 +398,25 @@ def test_hict_file_should_be_symmetric(
             ((end_col_excl - start_col_incl) % 2048)
     with hict_file_lock.gen_wlock() as hfl:
         plain_dense = ContactMatrixFacet.get_dense_submatrix(
-            hict_file, resolution, start_row_incl, start_col_incl, end_row_excl, end_col_excl, units=QueryLengthUnit.BINS, exclude_hidden_contigs=False)
+            hict_file,
+            resolution,
+            start_row_incl,
+            start_col_incl,
+            end_row_excl,
+            end_col_excl,
+            units=QueryLengthUnit.BINS,
+            exclude_hidden_contigs=False
+        )[0]
         transposed_dense = ContactMatrixFacet.get_dense_submatrix(
-            hict_file, resolution, start_col_incl, start_row_incl, end_col_excl, end_row_excl, units=QueryLengthUnit.BINS, exclude_hidden_contigs=False)
+            hict_file,
+            resolution,
+            start_col_incl,
+            start_row_incl,
+            end_col_excl,
+            end_row_excl,
+            units=QueryLengthUnit.BINS,
+            exclude_hidden_contigs=False
+        )[0]
     assert (
         np.array_equal(plain_dense, transposed_dense.T)
     ), "HiC contact matrix returned by HiCT should be symmetric"

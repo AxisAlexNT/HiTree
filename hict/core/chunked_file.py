@@ -727,9 +727,19 @@ class ChunkedFile(object):
         Tuple[np.int64, np.int64, np.int64, np.int64]
     ]:
         if queried_end_row_px_excl <= queried_start_row_px_incl:
-            return np.zeros((0, queried_end_col_px_excl - queried_start_col_px_incl)), (0, 0, 0, 0)
+            return (
+                np.zeros((0, queried_end_col_px_excl - queried_start_col_px_incl)), 
+                np.zeros(0), 
+                np.zeros(queried_end_col_px_excl - queried_start_col_px_incl), 
+                (0, 0, 0, 0)
+            )
         if queried_end_col_px_excl <= queried_start_col_px_incl:
-            return np.zeros((queried_end_row_px_excl - queried_start_row_px_incl, 0)), (0, 0, 0, 0)
+            return (
+                np.zeros((queried_end_row_px_excl - queried_start_row_px_incl, 0)), 
+                np.zeros(queried_end_row_px_excl - queried_start_row_px_incl), 
+                np.zeros(0), 
+                (0, 0, 0, 0)
+            )
         # assert queried_end_row_px_excl > queried_start_row_px_incl, "Rows: Start >= End??"
         # assert queried_end_col_px_excl > queried_start_col_px_incl, "Cols: Start >= End??"
 
