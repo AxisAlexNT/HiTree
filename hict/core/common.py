@@ -38,12 +38,14 @@ class ContigDescriptor(RecordClass):
     contig_id: np.int64
     contig_name: str
     direction: ContigDirection
-    # contig_length_bp: int # is stored at resolution 1:0
     contig_length_at_resolution: frozendict  # Dict[np.int64, np.int64]
     scaffold_id: Optional[np.int64]
     presence_in_resolution: frozendict
-
-    # TODO: Is shown in resolutions
+    # TODO: Decide how mapping Contig -> ATU and ATU -> Stripe is organized by ATL
+    # Should ATUs know their corresponding length in bins/bps?
+    # This implementation is not useful in case contig split occurrs:
+    start_atu_id_incl: np.int64
+    end_atu_id_excl: np.int64
 
     @staticmethod
     def make_contig_descriptor(
@@ -53,6 +55,8 @@ class ContigDescriptor(RecordClass):
             contig_length_bp: np.int64,
             contig_length_at_resolution: Dict[np.int64, np.int64],
             contig_presence_in_resolution: Dict[np.int64, ContigHideType],
+            start_atu_id_incl: np.int64,
+            end_atu_id_excl: np.int64,
             scaffold_id: Optional[np.int64] = None
     ) -> 'ContigDescriptor':
         assert (
@@ -67,7 +71,9 @@ class ContigDescriptor(RecordClass):
             contig_length_at_resolution,
             scaffold_id,
             frozendict({**contig_presence_in_resolution, **
-                       {np.int64(0): ContigHideType.FORCED_SHOWN}})
+                       {np.int64(0): ContigHideType.FORCED_SHOWN}}),
+            start_atu_id_incl,
+            end_atu_id_excl
         )
 
     def __eq__(self, o: object) -> bool:
@@ -119,6 +125,47 @@ class StripeDescriptor(RecordClass):  # NamedTuple):
                 o.stripe_length_bins,
                 o.stripe_length_bp,
                 o.contig_descriptor,
+            )
+        return False
+
+
+class ATUDescriptor(RecordClass):
+    atu_id: np.int64
+    contig_descriptor: ContigDescriptor
+    stripe_descriptor: StripeDescriptor
+    start_index_in_stripe: np.int64
+    end_index_in_stripe: np.int64
+
+    @staticmethod
+    def make_contig_descriptor(
+        atu_id: np.int64,
+        contig_descriptor: ContigDescriptor,
+        stripe_descriptor: StripeDescriptor,
+        start_index_in_stripe: np.int64,
+        end_index_in_stripe: np.int64
+    ) -> 'ATUDescriptor':
+        return ContigDescriptor(
+            atu_id,
+            contig_descriptor,
+            stripe_descriptor,
+            start_index_in_stripe,
+            end_index_in_stripe
+        )
+
+    def __eq__(self, o: object) -> bool:
+        if isinstance(o, ATUDescriptor):
+            return (
+                self.atu_id,
+                self.contig_descriptor,
+                self.stripe_descriptor,
+                self.start_index_in_stripe,
+                self.end_index_in_stripe
+            ) == (
+                o.atu_id,
+                o.contig_descriptor,
+                o.stripe_descriptor,
+                o.start_index_in_stripe,
+                o.end_index_in_stripe
             )
         return False
 

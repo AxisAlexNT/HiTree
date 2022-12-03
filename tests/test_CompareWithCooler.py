@@ -59,7 +59,7 @@ def test_resolutions_match():
 
 @settings(
     max_examples=500,
-    deadline=5000,
+    deadline=30000,
     derandomize=True,
     report_multiple_bugs=True,
     suppress_health_check=(
@@ -136,7 +136,7 @@ def test_compare_with_cooler(
 
 @settings(
     max_examples=500,
-    deadline=5000,
+    deadline=30000,
     derandomize=True,
     report_multiple_bugs=True,
     suppress_health_check=(
@@ -209,7 +209,7 @@ def test_compare_with_cooler_by_bins(
 
 @settings(
     max_examples=500,
-    deadline=5000,
+    deadline=30000,
     derandomize=True,
     report_multiple_bugs=True,
     suppress_health_check=(
@@ -273,7 +273,7 @@ def test_compare_square_queries_with_cooler(
 
 @settings(
     max_examples=500,
-    deadline=5000,
+    deadline=30000,
     derandomize=True,
     report_multiple_bugs=True,
     suppress_health_check=(
@@ -337,7 +337,7 @@ def test_compare_square_queries_with_cooler_by_bins(
 
 @settings(
     max_examples=500,
-    deadline=5000,
+    deadline=30000,
     derandomize=True,
     report_multiple_bugs=True,
     suppress_health_check=(
@@ -403,7 +403,7 @@ def test_compare_rectangular_queries_with_cooler(
 
 @settings(
     max_examples=500,
-    deadline=5000,
+    deadline=30000,
     derandomize=True,
     report_multiple_bugs=True,
     suppress_health_check=(
