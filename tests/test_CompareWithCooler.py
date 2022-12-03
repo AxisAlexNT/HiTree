@@ -10,7 +10,7 @@ from readerwriterlock import rwlock
 from pathlib import Path
 import pytest
 from pytest import fail
-from hypothesis import given, example, event, settings, strategies as st, assume
+from hypothesis import given, example, event, settings, strategies as st, assume, HealthCheck
 from hypothesis.extra import numpy as nps
 
 random.seed(int(time.time()))
@@ -57,9 +57,16 @@ def test_resolutions_match():
 # NOTE: Query size is not limited so this method may fail due to the OoM
 
 
-# @pytest.mark.randomize(resolution=int, choices=resolutions_mcool, ncalls=len(resolutions_mcool))
-# , derandomize=True, report_multiple_bugs=True)
-@settings(max_examples=500, deadline=5000)
+@settings(
+    max_examples=500,
+    deadline=5000,
+    derandomize=True,
+    report_multiple_bugs=True,
+    suppress_health_check=(
+        HealthCheck.filter_too_much,
+        HealthCheck.data_too_large
+    )
+)
 @given(
     resolution=st.sampled_from(resolutions_mcool),
     start_row_incl_bp=st.integers(min_value=0, max_value=total_bp_length),
@@ -127,8 +134,16 @@ def test_compare_with_cooler(
     gc.collect()
 
 
-# , derandomize=True, report_multiple_bugs=True)
-@settings(max_examples=500, deadline=2000)
+@settings(
+    max_examples=500,
+    deadline=5000,
+    derandomize=True,
+    report_multiple_bugs=True,
+    suppress_health_check=(
+        HealthCheck.filter_too_much,
+        HealthCheck.data_too_large
+    )
+)
 @given(
     resolution=st.sampled_from(resolutions_mcool),
     start_row_incl=st.integers(min_value=0, max_value=total_bp_length),
@@ -192,8 +207,16 @@ def test_compare_with_cooler_by_bins(
     gc.collect()
 
 
-# , derandomize=True, report_multiple_bugs=True)
-@settings(max_examples=500, deadline=2000)
+@settings(
+    max_examples=500,
+    deadline=5000,
+    derandomize=True,
+    report_multiple_bugs=True,
+    suppress_health_check=(
+        HealthCheck.filter_too_much,
+        HealthCheck.data_too_large
+    )
+)
 @given(
     resolution=st.sampled_from(resolutions_mcool),
     start_row_incl_bp=st.integers(min_value=0, max_value=total_bp_length),
@@ -248,8 +271,16 @@ def test_compare_square_queries_with_cooler(
     gc.collect()
 
 
-# , derandomize=True, report_multiple_bugs=True)
-@settings(max_examples=500, deadline=2000)
+@settings(
+    max_examples=500,
+    deadline=5000,
+    derandomize=True,
+    report_multiple_bugs=True,
+    suppress_health_check=(
+        HealthCheck.filter_too_much,
+        HealthCheck.data_too_large
+    )
+)
 @given(
     resolution=st.sampled_from(resolutions_mcool),
     start_row_incl=st.integers(min_value=0, max_value=total_bp_length),
@@ -304,8 +335,16 @@ def test_compare_square_queries_with_cooler_by_bins(
     gc.collect()
 
 
-# , derandomize=True, report_multiple_bugs=True)
-@settings(max_examples=500, deadline=2000)
+@settings(
+    max_examples=500,
+    deadline=5000,
+    derandomize=True,
+    report_multiple_bugs=True,
+    suppress_health_check=(
+        HealthCheck.filter_too_much,
+        HealthCheck.data_too_large
+    )
+)
 @given(
     resolution=st.sampled_from(resolutions_mcool),
     start_row_incl_bp=st.integers(min_value=0, max_value=total_bp_length),
@@ -362,8 +401,16 @@ def test_compare_rectangular_queries_with_cooler(
     gc.collect()
 
 
-# , derandomize=True, report_multiple_bugs=True)
-@settings(max_examples=500, deadline=2000)
+@settings(
+    max_examples=500,
+    deadline=5000,
+    derandomize=True,
+    report_multiple_bugs=True,
+    suppress_health_check=(
+        HealthCheck.filter_too_much,
+        HealthCheck.data_too_large
+    )
+)
 @given(
     resolution=st.sampled_from(resolutions_mcool),
     start_row_incl_bp=st.integers(min_value=0, max_value=total_bp_length),
