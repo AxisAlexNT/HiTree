@@ -1,14 +1,17 @@
-from hict.api.ContactMatrixFacet import ContactMatrixFacet
-from hict.core.common import QueryLengthUnit
-import pytest
-import numpy as np
-from typing import Dict
-import cooler
-from readerwriterlock import rwlock
-from pathlib import Path
 import gc
 import time
 import random
+from typing import Dict
+from hict.api.ContactMatrixFacet import ContactMatrixFacet
+from hict.core.common import QueryLengthUnit
+import numpy as np
+import cooler
+from readerwriterlock import rwlock
+from pathlib import Path
+import pytest
+from pytest import fail
+from hypothesis import given, example, event, settings, strategies as st, assume
+from hypothesis.extra import numpy as nps
 
 random.seed(int(time.time()))
 
@@ -19,10 +22,12 @@ hict_file_path: Path = Path(
     ".", "..", "hict_server", "data", "zanu_male_4DN.mcool.hict.hdf5").resolve()
 
 if not hict_file_path.is_file():
-    pytest.exit(msg=f"Test hict file must be present for this test at {hict_file_path}")
-    
+    pytest.exit(
+        msg=f"Test hict file must be present for this test at {hict_file_path}")
+
 if not mcool_file_path.is_file():
-    pytest.exit(msg=f"Test mcool file must be present for this test at {mcool_file_path}")
+    pytest.exit(
+        msg=f"Test mcool file must be present for this test at {mcool_file_path}")
 # pytestmark = pytest.mark.skipif(
 #     not hict_file_path.is_file(),
 #     reason=f"Test hict file must be present for this test at {hict_file_path}"
@@ -52,11 +57,16 @@ def test_resolutions_match():
 # NOTE: Query size is not limited so this method may fail due to the OoM
 
 
-@pytest.mark.randomize(resolution=int, choices=resolutions_mcool, ncalls=len(resolutions_mcool))
-@pytest.mark.randomize(start_row_incl_bp=int, min_num=0, max_num=total_bp_length, ncalls=5)
-@pytest.mark.randomize(start_col_incl_bp=int, min_num=0, max_num=total_bp_length, ncalls=5)
-@pytest.mark.randomize(end_row_excl_bp=int, min_num=0, max_num=total_bp_length, ncalls=5)
-@pytest.mark.randomize(end_col_excl_bp=int, min_num=0, max_num=total_bp_length, ncalls=5)
+# @pytest.mark.randomize(resolution=int, choices=resolutions_mcool, ncalls=len(resolutions_mcool))
+# , derandomize=True, report_multiple_bugs=True)
+@settings(max_examples=500, deadline=2000)
+@given(
+    resolution=st.sampled_from(resolutions_mcool),
+    start_row_incl_bp=st.integers(min_value=0, max_value=total_bp_length),
+    start_col_incl_bp=st.integers(min_value=0, max_value=total_bp_length),
+    end_row_excl_bp=st.integers(min_value=0, max_value=total_bp_length),
+    end_col_excl_bp=st.integers(min_value=0, max_value=total_bp_length)
+)
 def test_compare_with_cooler(
     resolution,
     start_row_incl_bp,
@@ -108,11 +118,16 @@ def test_compare_with_cooler(
     hict_file.clear_caches(saved_blocks=True)
     gc.collect()
 
-@pytest.mark.randomize(resolution=int, choices=resolutions_mcool, ncalls=len(resolutions_mcool))
-@pytest.mark.randomize(start_row_incl=int, min_num=0, max_num=total_bp_length, ncalls=5)
-@pytest.mark.randomize(start_col_incl=int, min_num=0, max_num=total_bp_length, ncalls=5)
-@pytest.mark.randomize(end_row_excl=int, min_num=0, max_num=total_bp_length, ncalls=5)
-@pytest.mark.randomize(end_col_excl=int, min_num=0, max_num=total_bp_length, ncalls=5)
+
+# , derandomize=True, report_multiple_bugs=True)
+@settings(max_examples=500, deadline=2000)
+@given(
+    resolution=st.sampled_from(resolutions_mcool),
+    start_row_incl=st.integers(min_value=0, max_value=total_bp_length),
+    start_col_incl=st.integers(min_value=0, max_value=total_bp_length),
+    end_row_excl=st.integers(min_value=0, max_value=total_bp_length),
+    end_col_excl=st.integers(min_value=0, max_value=total_bp_length)
+)
 def test_compare_with_cooler_by_bins(
     resolution,
     start_row_incl,
@@ -161,10 +176,14 @@ def test_compare_with_cooler_by_bins(
     gc.collect()
 
 
-@pytest.mark.randomize(resolution=int, choices=resolutions_mcool, ncalls=len(resolutions_mcool))
-@pytest.mark.randomize(start_row_incl_bp=int, min_num=0, max_num=total_bp_length, ncalls=5)
-@pytest.mark.randomize(start_col_incl_bp=int, min_num=0, max_num=total_bp_length, ncalls=5)
-@pytest.mark.randomize(query_size=int, choices=[1, 2, 5, 10, 64, 100, 127, 512, 1000, 2560], ncalls=10)
+# , derandomize=True, report_multiple_bugs=True)
+@settings(max_examples=500, deadline=2000)
+@given(
+    resolution=st.sampled_from(resolutions_mcool),
+    start_row_incl_bp=st.integers(min_value=0, max_value=total_bp_length),
+    start_col_incl_bp=st.integers(min_value=0, max_value=total_bp_length),
+    query_size=st.sampled_from([1, 2, 5, 10, 64, 100, 127, 512, 1000, 2560])
+)
 def test_compare_square_queries_with_cooler(
     resolution,
     start_row_incl_bp,
@@ -204,10 +223,15 @@ def test_compare_square_queries_with_cooler(
     hict_file.clear_caches(saved_blocks=True)
     gc.collect()
 
-@pytest.mark.randomize(resolution=int, choices=resolutions_mcool, ncalls=len(resolutions_mcool))
-@pytest.mark.randomize(start_row_incl=int, min_num=0, max_num=total_bp_length, ncalls=5)
-@pytest.mark.randomize(start_col_incl=int, min_num=0, max_num=total_bp_length, ncalls=5)
-@pytest.mark.randomize(query_size=int, choices=[1, 2, 5, 10, 64, 100, 127, 512, 1000, 2560], ncalls=10)
+
+# , derandomize=True, report_multiple_bugs=True)
+@settings(max_examples=500, deadline=2000)
+@given(
+    resolution=st.sampled_from(resolutions_mcool),
+    start_row_incl=st.integers(min_value=0, max_value=total_bp_length),
+    start_col_incl=st.integers(min_value=0, max_value=total_bp_length),
+    query_size=st.sampled_from([1, 2, 5, 10, 64, 100, 127, 512, 1000, 2560])
+)
 def test_compare_square_queries_with_cooler_by_bins(
     resolution,
     start_row_incl,
@@ -248,11 +272,15 @@ def test_compare_square_queries_with_cooler_by_bins(
     gc.collect()
 
 
-@pytest.mark.randomize(resolution=int, choices=resolutions_mcool, ncalls=len(resolutions_mcool))
-@pytest.mark.randomize(start_row_incl_bp=int, min_num=0, max_num=total_bp_length, ncalls=5)
-@pytest.mark.randomize(start_col_incl_bp=int, min_num=0, max_num=total_bp_length, ncalls=5)
-@pytest.mark.randomize(query_size_row=int, choices=[1, 2, 10, 100, 1000], ncalls=5)
-@pytest.mark.randomize(query_size_col=int, choices=[1, 2, 5, 64, 127], ncalls=5)
+# , derandomize=True, report_multiple_bugs=True)
+@settings(max_examples=500, deadline=2000)
+@given(
+    resolution=st.sampled_from(resolutions_mcool),
+    start_row_incl_bp=st.integers(min_value=0, max_value=total_bp_length),
+    start_col_incl_bp=st.integers(min_value=0, max_value=total_bp_length),
+    query_size_row=st.sampled_from([1, 2, 10, 100, 1000]),
+    query_size_col=st.sampled_from([1, 2, 5, 64, 127])
+)
 def test_compare_rectangular_queries_with_cooler(
     resolution,
     start_row_incl_bp,
@@ -294,11 +322,15 @@ def test_compare_rectangular_queries_with_cooler(
     gc.collect()
 
 
-@pytest.mark.randomize(resolution=int, choices=resolutions_mcool, ncalls=len(resolutions_mcool))
-@pytest.mark.randomize(start_row_incl_bp=int, min_num=0, max_num=total_bp_length, ncalls=5)
-@pytest.mark.randomize(start_col_incl_bp=int, min_num=0, max_num=total_bp_length, ncalls=5)
-@pytest.mark.randomize(end_row_excl_bp=int, min_num=0, max_num=total_bp_length, ncalls=5)
-@pytest.mark.randomize(end_col_excl_bp=int, min_num=0, max_num=total_bp_length, ncalls=5)
+# , derandomize=True, report_multiple_bugs=True)
+@settings(max_examples=500, deadline=2000)
+@given(
+    resolution=st.sampled_from(resolutions_mcool),
+    start_row_incl_bp=st.integers(min_value=0, max_value=total_bp_length),
+    start_col_incl_bp=st.integers(min_value=0, max_value=total_bp_length),
+    end_row_excl_bp=st.integers(min_value=0, max_value=total_bp_length),
+    end_col_excl_bp=st.integers(min_value=0, max_value=total_bp_length)
+)
 def test_hict_file_should_be_symmetric(
     resolution,
     start_row_incl_bp,
