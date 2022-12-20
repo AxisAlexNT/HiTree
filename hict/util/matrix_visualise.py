@@ -4,10 +4,13 @@ from hict.api.ContactMatrixFacet import ContactMatrixFacet
 from hict.core.chunked_file import ChunkedFile
 import matplotlib.colors as clr
 
+from HiCT_Library.hict.core.common import ScaffoldDescriptor
+
 
 class MatrixVisualise(object):
     @staticmethod
-    def get_matrix(chunk_file_with_agp: ChunkedFile, contig_name: string, resolution: int, weighted: bool) -> np.ndarray:
+    def get_matrix(chunk_file_with_agp: ChunkedFile, contig_name: string, resolution: int,
+                   weighted: bool) -> np.ndarray:
         _, contig_location, contig_location_exclude_hidden, _ = chunk_file_with_agp.get_contig_location(
             chunk_file_with_agp.contig_name_to_contig_id[contig_name])
         matrix, w_r, w_c = ContactMatrixFacet.get_dense_submatrix(chunk_file_with_agp,
@@ -24,10 +27,11 @@ class MatrixVisualise(object):
         return matrix
 
     @staticmethod
-    def log_matrix(matrix: np.ndarray, log_base: float = 10, addition: float = 1, remove_zeros: bool = True) -> np.ndarray:
+    def log_matrix(matrix: np.ndarray, log_base: float = 10, addition: float = 1,
+                   remove_zeros: bool = True) -> np.ndarray:
         if remove_zeros:
             matrix[matrix == 0] = np.NaN
-        return np.log(matrix+addition)/np.log(log_base)
+        return np.log(matrix + addition) / np.log(log_base)
 
     @staticmethod
     def get_colormap(start_color_hex: string, mid_color_hex: string, end_color_hex: string,
@@ -37,3 +41,38 @@ class MatrixVisualise(object):
         return clr.LinearSegmentedColormap.from_list('custom colormap', [(gradient_levels[0], start_color_hex),
                                                                          (gradient_levels[1], mid_color_hex),
                                                                          (gradient_levels[2], end_color_hex)])
+
+    @staticmethod
+    def calculate_diag_means(matrix: np.ndarray, scaffold_first: ScaffoldDescriptor,
+                             scaffold_second: ScaffoldDescriptor, res: string = 'exp/obs') -> np.ndarray:
+        result = np.zeros_like(matrix, dtype='float64')
+        expected = np.zeros_like(matrix, dtype='float64')
+        if scaffold_first.scaffold_id == scaffold_second.scaffold_id:
+            n = len(matrix)
+            averages_at_dist = [np.nanmean([matrix[i, j - d] for i, j in zip(range(d, n), range(d, n))]) for d in
+                                range(n)]
+            for i in range(n):
+                for j in range(n):
+                    expected[i, j] = averages_at_dist[abs(i - j)]
+        else:
+            averages_at_dist = np.nanmean(matrix)
+            for i in range(len(matrix)):
+                for j in range(len(matrix)):
+                    expected[i, j] = averages_at_dist[abs(i - j)]
+
+        if res == 'exp/obs':
+            return expected / matrix
+
+        if res == 'exp':
+            return expected
+
+        if res == 'exp-obs':
+            return expected - matrix
+
+        if res == 'obs-exp':
+            return matrix - expected
+
+        if res == 'obs/exp':
+            return matrix / expected
+
+        return result
