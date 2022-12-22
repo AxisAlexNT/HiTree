@@ -1,0 +1,6 @@
+cooler >=0.8.11, <0.9
+pytest >=5.4.3, <8
+pytest-quickcheck >=0.8.6, <1
+hypothesis >=6.61, <7
+mypy >=0.971, <1
+types-cachetools >=5.2.0, <6 
