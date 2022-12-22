@@ -28,6 +28,10 @@ jobs:
         check-latest: true
         # Set this option if you want the action to update environment variables.
         update-environment: true
+    - name: Install HDF5 library
+      uses: awalsh128/cache-apt-pkgs-action@latest
+      with:
+        packages: libhdf5-dev
     - name: Install dependencies
       run: |
         pip install -r requirements.txt
