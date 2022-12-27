@@ -639,14 +639,28 @@ class ChunkedFile(object):
             assert (
                 resolution != 0 and resolution != 1
             ), "Bins query should use actual resolution, not reserved 1:0 or 1:1"
-            return self.get_coverage_matrix_pixels_internal(resolution, start_row_incl, start_col_incl, end_row_excl,
-                                                            end_col_excl, exclude_hidden_contigs, fetch_cooler_weights)
+            return self.get_coverage_matrix_pixels_internal(
+                resolution,
+                start_row_incl,
+                start_col_incl,
+                end_row_excl,
+                end_col_excl,
+                exclude_hidden_contigs,
+                fetch_cooler_weights
+            )
         elif units == QueryLengthUnit.PIXELS:
             assert (
                 resolution != 0 and resolution != 1
             ), "Pixels query should use actual resolution, not reserved 1:0 or 1:1"
-            return self.get_coverage_matrix_pixels_internal(resolution, start_row_incl, start_col_incl, end_row_excl,
-                                                            end_col_excl, exclude_hidden_contigs, fetch_cooler_weights)
+            return self.get_coverage_matrix_pixels_internal(
+                resolution,
+                start_row_incl,
+                start_col_incl,
+                end_row_excl,
+                end_col_excl,
+                exclude_hidden_contigs,
+                fetch_cooler_weights
+            )
         else:
             raise Exception("Unknown length unit")
 
@@ -798,20 +812,22 @@ class ChunkedFile(object):
                 row_weights = (
                     row_stripe.bin_weights
                     if (
-                        row_stripe.contig_descriptor.direction == ContigDirection.REVERSED
+                        row_stripe.contig_descriptor.direction == ContigDirection.FORWARD
                     ) else np.flip(row_stripe.bin_weights)
                 )
                 coverage_row_weights = np.hstack(
-                    (coverage_row_weights, row_weights))
+                    (coverage_row_weights, row_weights)
+                )
             for col_stripe in col_stripes:
                 col_weights = (
                     col_stripe.bin_weights
                     if (
-                        col_stripe.contig_descriptor.direction == ContigDirection.REVERSED
+                        col_stripe.contig_descriptor.direction == ContigDirection.FORWARD
                     ) else np.flip(col_stripe.bin_weights)
                 )
                 coverage_col_weights = np.hstack(
-                    (coverage_col_weights, col_weights))
+                    (coverage_col_weights, col_weights)
+                )
         else:
             coverage_row_weights = np.ones(query_length_rows, dtype=np.float64)
             coverage_col_weights = np.ones(query_length_cols, dtype=np.float64)
