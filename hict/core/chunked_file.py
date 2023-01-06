@@ -14,7 +14,7 @@ from scipy.sparse import coo_array, csr_array, csc_array
 
 from hict.core.AGPProcessor import *
 from hict.core.FASTAProcessor import FASTAProcessor
-from hict.core.common import StripeDescriptor, ContigDescriptor, ScaffoldDescriptor, ScaffoldBorders, \
+from hict.core.common import ATUDescriptor, StripeDescriptor, ContigDescriptor, ScaffoldDescriptor, ScaffoldBorders, \
     ScaffoldDirection, FinalizeRecordType, ContigHideType, QueryLengthUnit
 from hict.core.contig_tree import ContigTree
 from hict.core.scaffold_holder import ScaffoldHolder
@@ -389,13 +389,13 @@ class ChunkedFile(object):
             #     # first_segment_contig_start_bins,
             #     contig_segment_end_bins
             # )
-            
+
             stripes_in_range = stripe_tree.get_stripes_in_segment(
                 start_px_incl,
                 end_px_excl,
                 QueryLengthUnit.PIXELS
             )
-            
+
             stripes: List[StripeDescriptor] = list(filter(
                 lambda s: (
                     s.contig_descriptor.presence_in_resolution[resolution] in (
@@ -415,7 +415,79 @@ class ChunkedFile(object):
             #     start_px_incl - first_segment_contig_start_px +
             #     stripes_in_range.first_stripe_start_bins - first_segment_contig_start_bins
             # )
-            
+
+            delta_in_px_between_left_query_border_and_stripe_start: np.int64 = (
+                start_px_incl - stripes_in_range.first_stripe_start_px
+            )
+
+            query_length: np.int64 = end_px_excl - start_px_incl
+            sum_stripe_lengths = sum([s.stripe_length_bins for s in stripes])
+            assert (
+                sum_stripe_lengths >= query_length
+            ), f"Sum of stripes lengths {sum_stripe_lengths} is less than was queried: {query_length}?"
+
+            return delta_in_px_between_left_query_border_and_stripe_start, stripes
+        else:
+            first_segment_contig_start_bins: np.int64 = start_px_incl
+            contig_segment_end_bins: np.int64 = end_px_excl
+
+            stripe_tree: StripeTree = self.matrix_trees[resolution]
+            # 1+start because (start) bins should not be touched to the left of the query
+            stripes_in_range = stripe_tree.get_stripes_in_segment(
+                1 + first_segment_contig_start_bins,
+                contig_segment_end_bins
+            )
+
+            stripes: List[StripeDescriptor] = stripes_in_range.stripes
+
+            if len(stripes) == 0:
+                return 0, []
+
+            delta_in_px_between_left_query_border_and_stripe_start: np.int64 = (
+                first_segment_contig_start_bins - stripes_in_range.first_stripe_start_bins
+            )
+
+            return delta_in_px_between_left_query_border_and_stripe_start, stripes
+
+    def get_atus_for_range(
+            self,
+            resolution: np.int64,
+            start_px_incl: np.int64,
+            end_px_excl: np.int64,
+            exclude_hidden_contigs: bool  # = False
+    ) -> Tuple[
+        np.int64,
+        List[StripeDescriptor]
+    ]:
+        if exclude_hidden_contigs:
+            stripe_tree: StripeTree = self.matrix_trees[resolution]
+
+            stripes_in_range = stripe_tree.get_stripes_in_segment(
+                start_px_incl,
+                end_px_excl,
+                QueryLengthUnit.PIXELS
+            )
+
+            stripes: List[StripeDescriptor] = list(filter(
+                lambda s: (
+                    s.contig_descriptor.presence_in_resolution[resolution] in (
+                        ContigHideType.AUTO_SHOWN,
+                        ContigHideType.FORCED_SHOWN
+                    )
+                ),
+                stripes_in_range.stripes
+            ))
+
+            if len(stripes) == 0:
+                return 0, []
+
+            # assert start_px_incl >= first_segment_contig_start_px, "Contig starts after its covered query?"
+
+            # delta_in_px_between_left_query_border_and_stripe_start: np.int64 = (
+            #     start_px_incl - first_segment_contig_start_px +
+            #     stripes_in_range.first_stripe_start_bins - first_segment_contig_start_bins
+            # )
+
             delta_in_px_between_left_query_border_and_stripe_start: np.int64 = (
                 start_px_incl - stripes_in_range.first_stripe_start_px
             )
@@ -592,7 +664,8 @@ class ChunkedFile(object):
                 dense_blocks: h5py.Dataset = blocks_dir['dense_blocks']
                 index_in_dense_blocks: np.int64 = -(block_offset + 1)
                 mx_as_array = dense_blocks[index_in_dense_blocks, 0, :, :]
-                mx_as_array = self.flip_dense_2d_fetched_block(mx_as_array, row_block, col_block, needs_transpose)
+                mx_as_array = self.flip_dense_2d_fetched_block(
+                    mx_as_array, row_block, col_block, needs_transpose)
             else:
                 block_vals: h5py.Dataset = blocks_dir['block_vals']
                 block_finish = block_offset + block_length
@@ -612,8 +685,9 @@ class ChunkedFile(object):
                 if needs_transpose:
                     mx = mx.transpose(copy=False)
                 mx = mx.tocsr()
-                mx_as_array = self.flip_sparse_2d_fetched_block(mx, row_block, col_block)
-                
+                mx_as_array = self.flip_sparse_2d_fetched_block(
+                    mx, row_block, col_block)
+
         return mx_as_array
 
     def get_submatrix(
@@ -711,6 +785,148 @@ class ChunkedFile(object):
         else:
             raise Exception("Unknown length unit")
 
+    def get_coverage_matrix_pixels_using_atus_internal(
+            self,
+            resolution: np.int64,
+            queried_start_row_px_incl: np.int64,
+            queried_start_col_px_incl: np.int64,
+            queried_end_row_px_excl: np.int64,
+            queried_end_col_px_excl: np.int64,
+            exclude_hidden_contigs: bool,
+            fetch_cooler_weights: bool
+    ) -> Tuple[
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+        Tuple[np.int64, np.int64, np.int64, np.int64]
+    ]:
+        if queried_end_row_px_excl <= queried_start_row_px_incl:
+            return (
+                np.zeros((0, queried_end_col_px_excl -
+                         queried_start_col_px_incl)),
+                np.zeros(0),
+                np.zeros(queried_end_col_px_excl - queried_start_col_px_incl),
+                (0, 0, 0, 0)
+            )
+        if queried_end_col_px_excl <= queried_start_col_px_incl:
+            return (
+                np.zeros((queried_end_row_px_excl -
+                         queried_start_row_px_incl, 0)),
+                np.zeros(queried_end_row_px_excl - queried_start_row_px_incl),
+                np.zeros(0),
+                (0, 0, 0, 0)
+            )
+        # assert queried_end_row_px_excl > queried_start_row_px_incl, "Rows: Start >= End??"
+        # assert queried_end_col_px_excl > queried_start_col_px_incl, "Cols: Start >= End??"
+
+        length_bins, _, length_px = self.contig_tree.get_sizes()
+        length_px_at_resolution: np.int64
+        if exclude_hidden_contigs:
+            length_px_at_resolution = length_px[resolution]
+        else:
+            length_px_at_resolution = length_bins[resolution]
+
+        start_row_px_incl: np.int64
+        start_col_px_incl: np.int64
+        end_row_px_excl: np.int64
+        end_col_px_excl: np.int64
+
+        start_row_px_incl: np.int64 = constrain_coordinate(
+            queried_start_row_px_incl, 0, length_px_at_resolution)
+        end_row_px_excl: np.int64 = constrain_coordinate(
+            queried_end_row_px_excl, 0, length_px_at_resolution)
+        start_col_px_incl: np.int64 = constrain_coordinate(
+            queried_start_col_px_incl, 0, length_px_at_resolution)
+        end_col_px_excl: np.int64 = constrain_coordinate(
+            queried_end_col_px_excl, 0, length_px_at_resolution)
+
+    def get_atus_in_range(
+        self,
+        resolution: np.int64,
+        start_px_incl: np.int64,
+        end_px_excl: np.int64,
+        exclude_hidden_contigs: bool,
+    ) -> List[ATUDescriptor]:
+        es: ContigTree.ExposedSegment = self.contig_tree.expose_segment(
+            resolution,
+            start_px_incl,
+            end_px_excl-1,
+            units=QueryLengthUnit.PIXELS if exclude_hidden_contigs else QueryLengthUnit.BINS
+        )
+
+        result_atus: List[ATUDescriptor]
+
+        query_length: np.int64 = end_px_excl - start_px_incl
+
+        if es.segment is None:
+            assert query_length <= 0, "Query is not zero-length, but no ATUs were found?"
+            result_atus = []
+            delta_px_between_start = np.int64(0)
+        else:
+            less_size: np.int64
+            if es.less is not None:
+                less_size = es.less.get_sizes(
+                )[2 if exclude_hidden_contigs else 0][resolution]
+            else:
+                less_size = np.int64(0)
+            delta_px_between_segment_first_contig_start_and_query_start: np.int64 = start_px_incl - less_size - 1
+            assert delta_px_between_segment_first_contig_start_and_query_start >= 0
+
+            total_segment_length_px: np.int64 = es.segment.get_sizes()[2 if exclude_hidden_contigs else 0][resolution]
+
+            atus: List[ATUDescriptor] = []
+
+            def traverse_fn(node: ContigTree.Node) -> None:
+                atus.extend(node.contig_descriptor.atus)
+
+            ContigTree.traverse_nodes_at_resolution(
+                es.segment, resolution, exclude_hidden_contigs, traverse_fn)
+            
+            assert (
+                sum(map(lambda atu: atu.end_index_in_stripe_excl - atu.start_index_in_stripe_incl, atus)) == total_segment_length_px
+            ), "ATUs total length is less than exposed segment length??"            
+            
+            first_contig_node_in_segment: Optional[ContigTree.Node] = es.segment.leftmost(
+            )
+
+            assert first_contig_node_in_segment is not None, "Segment is not empty but has no leftmost contig??"
+
+            first_contig_in_segment: ContigDescriptor = first_contig_node_in_segment.contig_descriptor
+
+            index_of_atu_containing_start: np.int64 = np.searchsorted(
+                first_contig_in_segment.atu_prefix_sum_length_bins,
+                delta_px_between_segment_first_contig_start_and_query_start,
+                side='right'
+            )
+
+            assert (
+                index_of_atu_containing_start < len(
+                    first_contig_in_segment.atu_prefix_sum_length_bins)
+            ), "Start of query does not fall into exposed leftmost contig??"
+
+            length_of_atus_before_one_containing_start_px: np.int64 = (
+                first_contig_in_segment.atu_prefix_sum_length_bins[
+                    index_of_atu_containing_start-1
+                ] if index_of_atu_containing_start > 0 else np.int64(0)
+            )
+            
+            old_first_atu: ATUDescriptor = atus[index_of_atu_containing_start]
+            new_first_atu: ATUDescriptor = ATUDescriptor.make_atu_descriptor(
+                old_first_atu.stripe_descriptor,
+                old_first_atu.start_index_in_stripe_incl + (delta_px_between_segment_first_contig_start_and_query_start - length_of_atus_before_one_containing_start_px),
+                old_first_atu.end_index_in_stripe_excl,
+                old_first_atu.direction
+            )
+            
+            atus[index_of_atu_containing_start] = new_first_atu
+            result_atus = atus[index_of_atu_containing_start:]
+            
+            # TODO:
+            # delta_between_right_px_and_exposed_segment: np.int64 = 
+
+        self.contig_tree.commit_exposed_segment(es)
+        return result_atus
+
     def get_coverage_matrix_pixels_internal(
             self,
             resolution: np.int64,
@@ -728,16 +944,18 @@ class ChunkedFile(object):
     ]:
         if queried_end_row_px_excl <= queried_start_row_px_incl:
             return (
-                np.zeros((0, queried_end_col_px_excl - queried_start_col_px_incl)), 
-                np.zeros(0), 
-                np.zeros(queried_end_col_px_excl - queried_start_col_px_incl), 
+                np.zeros((0, queried_end_col_px_excl -
+                         queried_start_col_px_incl)),
+                np.zeros(0),
+                np.zeros(queried_end_col_px_excl - queried_start_col_px_incl),
                 (0, 0, 0, 0)
             )
         if queried_end_col_px_excl <= queried_start_col_px_incl:
             return (
-                np.zeros((queried_end_row_px_excl - queried_start_row_px_incl, 0)), 
-                np.zeros(queried_end_row_px_excl - queried_start_row_px_incl), 
-                np.zeros(0), 
+                np.zeros((queried_end_row_px_excl -
+                         queried_start_row_px_incl, 0)),
+                np.zeros(queried_end_row_px_excl - queried_start_row_px_incl),
+                np.zeros(0),
                 (0, 0, 0, 0)
             )
         # assert queried_end_row_px_excl > queried_start_row_px_incl, "Rows: Start >= End??"
@@ -766,6 +984,12 @@ class ChunkedFile(object):
 
         row_delta_in_px_between_left_query_border_and_stripe_start: np.int64
         row_stripes: List[StripeDescriptor]
+        row_delta_in_px_between_left_query_border_and_stripe_start, row_atus = self.get_atus_for_range(
+            resolution,
+            start_row_px_incl,
+            end_row_px_excl,
+            exclude_hidden_contigs=exclude_hidden_contigs
+        )
         row_delta_in_px_between_left_query_border_and_stripe_start, row_stripes = self.get_stripes_for_range(
             resolution,
             start_row_px_incl,

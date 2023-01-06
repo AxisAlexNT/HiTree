@@ -1,5 +1,6 @@
 from enum import Enum
-from typing import Dict, Optional
+import functools
+from typing import Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 from frozendict import frozendict
@@ -32,62 +33,6 @@ class ContigHideType(Enum):
 class ScaffoldBorders(RecordClass):
     start_contig_id: np.int64
     end_contig_id: np.int64
-
-
-class ContigDescriptor(RecordClass):
-    contig_id: np.int64
-    contig_name: str
-    direction: ContigDirection
-    contig_length_at_resolution: frozendict  # Dict[np.int64, np.int64]
-    scaffold_id: Optional[np.int64]
-    presence_in_resolution: frozendict
-    # TODO: Decide how mapping Contig -> ATU and ATU -> Stripe is organized by ATL
-    # Should ATUs know their corresponding length in bins/bps?
-    # This implementation is not useful in case contig split occurrs:
-    start_atu_id_incl: np.int64
-    end_atu_id_excl: np.int64
-
-    @staticmethod
-    def make_contig_descriptor(
-            contig_id: np.int64,
-            contig_name: str,
-            direction: ContigDirection,
-            contig_length_bp: np.int64,
-            contig_length_at_resolution: Dict[np.int64, np.int64],
-            contig_presence_in_resolution: Dict[np.int64, ContigHideType],
-            start_atu_id_incl: np.int64,
-            end_atu_id_excl: np.int64,
-            scaffold_id: Optional[np.int64] = None
-    ) -> 'ContigDescriptor':
-        assert (
-            0 not in contig_length_at_resolution.keys()
-        ), "There should be no resolution 1:0 as it is used internally to store contig length in base pairs"
-        contig_length_at_resolution = frozendict(
-            {**contig_length_at_resolution, **{np.int64(0): contig_length_bp}})
-        return ContigDescriptor(
-            contig_id,
-            contig_name,
-            direction,
-            contig_length_at_resolution,
-            scaffold_id,
-            frozendict({**contig_presence_in_resolution, **
-                       {np.int64(0): ContigHideType.FORCED_SHOWN}}),
-            start_atu_id_incl,
-            end_atu_id_excl
-        )
-
-    def __eq__(self, o: object) -> bool:
-        if isinstance(o, ContigDescriptor):
-            return (
-                self.contig_id,
-                self.direction,
-                self.contig_length_at_resolution
-            ) == (
-                o.contig_id,
-                o.direction,
-                o.contig_length_at_resolution
-            )
-        return False
 
 
 class StripeDescriptor(RecordClass):  # NamedTuple):
@@ -129,45 +74,87 @@ class StripeDescriptor(RecordClass):  # NamedTuple):
         return False
 
 
+class ATUDirection(Enum):
+    FORWARD = 1
+    REVERSED = 0
+
+
 class ATUDescriptor(RecordClass):
     atu_id: np.int64
-    contig_descriptor: ContigDescriptor
     stripe_descriptor: StripeDescriptor
-    start_index_in_stripe: np.int64
-    end_index_in_stripe: np.int64
+    start_index_in_stripe_incl: np.int64
+    end_index_in_stripe_excl: np.int64
+    direction: ATUDirection
 
     @staticmethod
-    def make_contig_descriptor(
-        atu_id: np.int64,
-        contig_descriptor: ContigDescriptor,
+    def make_atu_descriptor(
         stripe_descriptor: StripeDescriptor,
-        start_index_in_stripe: np.int64,
-        end_index_in_stripe: np.int64
+        start_index_in_stripe_incl: np.int64,
+        end_index_in_stripe_excl: np.int64,
+        direction: ATUDirection
     ) -> 'ATUDescriptor':
+        assert (
+            start_index_in_stripe_incl < end_index_in_stripe_excl
+        ), "All ATUs should have their start preceeding end, no empty ATUs are allowed, direction is controlled by ATUDirection"
         return ContigDescriptor(
-            atu_id,
-            contig_descriptor,
             stripe_descriptor,
-            start_index_in_stripe,
-            end_index_in_stripe
+            start_index_in_stripe_incl,
+            end_index_in_stripe_excl,
+            direction
         )
 
     def __eq__(self, o: object) -> bool:
         if isinstance(o, ATUDescriptor):
             return (
-                self.atu_id,
                 self.contig_descriptor,
                 self.stripe_descriptor,
-                self.start_index_in_stripe,
-                self.end_index_in_stripe
+                self.start_index_in_stripe_incl,
+                self.end_index_in_stripe_excl,
+                self.direction
             ) == (
-                o.atu_id,
                 o.contig_descriptor,
                 o.stripe_descriptor,
-                o.start_index_in_stripe,
-                o.end_index_in_stripe
+                o.start_index_in_stripe_incl,
+                o.end_index_in_stripe_excl,
+                o.direction
             )
         return False
+
+    @staticmethod
+    def merge(
+        d1: 'ATUDescriptor',
+        d2: 'ATUDescriptor'
+    ) -> Tuple['ATUDescriptor', Optional['ATUDescriptor']]:
+        if d1.stripe_descriptor.stripe_id == d2.stripe_descriptor.stripe_id and d1.direction == d2.direction:
+            if d1.end_index_in_stripe_excl == d2.start_index_in_stripe_incl:
+                return ATUDescriptor.make_atu_descriptor(
+                    d1.stripe_descriptor,
+                    d1.start_index_in_stripe_incl,
+                    d2.end_index_in_stripe_excl,
+                    d1.direction
+                ), None
+            else:
+                return ATUDescriptor.merge(d1=d2, d2=d1)
+        else:
+            return d1, d2
+
+    @staticmethod
+    def reduce(
+        atus: Iterable['ATUDescriptor']
+    ) -> List['ATUDescriptor']:
+        if len(atus) == 0:
+            return []
+
+        def reduce_fn(merged: List[ATUDescriptor], atu: ATUDescriptor) -> List[ATUDescriptor]:
+            assert len(
+                merged) > 0, "At least one element must be added by initial condition"
+            d1, d2 = ATUDescriptor.merge(merged[-1], atu)
+            merged[-1] = d1
+            if d2 is not None:
+                merged.append(d2)
+            return merged
+
+        return functools.reduce(reduce_fn, atus[1:], [atus[0]])
 
 
 class ScaffoldDescriptor(RecordClass):
@@ -176,6 +163,69 @@ class ScaffoldDescriptor(RecordClass):
     scaffold_borders: Optional[ScaffoldBorders]
     scaffold_direction: ScaffoldDirection
     spacer_length: int = 1000
+
+
+class ContigDescriptor(RecordClass):
+    contig_id: np.int64
+    contig_name: str
+    direction: ContigDirection
+    contig_length_at_resolution: frozendict  # Dict[np.int64, np.int64]
+    scaffold_id: Optional[np.int64]
+    presence_in_resolution: frozendict
+    # TODO: Decide how mapping Contig -> ATU and ATU -> Stripe is organized by ATL
+    # Should ATUs know their corresponding length in bins/bps?
+    # This implementation is not useful in case contig split occurrs:
+    atus: Dict[np.int64, List[ATUDescriptor]]
+    atu_prefix_sum_length_bins: Dict[np.int64, np.ndarray]
+
+    @staticmethod
+    def make_contig_descriptor(
+            contig_id: np.int64,
+            contig_name: str,
+            direction: ContigDirection,
+            contig_length_bp: np.int64,
+            contig_length_at_resolution: Dict[np.int64, np.int64],
+            contig_presence_in_resolution: Dict[np.int64, ContigHideType],
+            atus: Dict[np.int64, List[ATUDescriptor]],
+            scaffold_id: Optional[np.int64] = None
+    ) -> 'ContigDescriptor':
+        assert (
+            0 not in contig_length_at_resolution.keys()
+        ), "There should be no resolution 1:0 as it is used internally to store contig length in base pairs"
+        contig_length_at_resolution = frozendict(
+            {**contig_length_at_resolution, **{np.int64(0): contig_length_bp}})
+        return ContigDescriptor(
+            contig_id,
+            contig_name,
+            direction,
+            contig_length_at_resolution,
+            scaffold_id,
+            frozendict({**contig_presence_in_resolution, **
+                       {np.int64(0): ContigHideType.FORCED_SHOWN}}),
+            atus,
+            {
+                resolution: np.cumsum(
+                    tuple(
+                        map(
+                            lambda atu: atu.end_index_in_stripe_excl - atu.start_index_in_stripe_incl, atus
+                        )
+                    ), dtype=np.int64)
+                for resolution in contig_length_at_resolution.keys()
+            }
+        )
+
+    def __eq__(self, o: object) -> bool:
+        if isinstance(o, ContigDescriptor):
+            return (
+                self.contig_id,
+                self.direction,
+                self.contig_length_at_resolution
+            ) == (
+                o.contig_id,
+                o.direction,
+                o.contig_length_at_resolution
+            )
+        return False
 
 
 class FinalizeRecordType(Enum):
