@@ -23,7 +23,8 @@ class MatrixVisualise(object):
                                                                   fetch_cooler_weights=weighted)
 
         if weighted:
-            matrix = ContactMatrixFacet.apply_cooler_balance_to_dense_matrix(matrix, w_r, w_c, False)
+            matrix = ContactMatrixFacet.apply_cooler_balance_to_dense_matrix(
+                matrix, w_r, w_c, False)
 
         matrix = matrix.astype('float32')
         matrix[matrix == 0] = np.nan
@@ -48,13 +49,13 @@ class MatrixVisualise(object):
 
     @staticmethod
     def get_colormap_diverging(first_quarter: float = 0.250, second_quarter: float = 0.750,
-                               start_color:tuple = (0.000, 0.145, 0.702), end_color:tuple =  (0.780, 0.012, 0.051),
-                               mid_color:tuple =  (1.000, 1.000, 1.000) ) \
+                               start_color: tuple = (0.000, 0.145, 0.702), end_color: tuple = (0.780, 0.012, 0.051),
+                               mid_color: tuple = (1.000, 1.000, 1.000)) \
             -> clr.LinearSegmentedColormap:
         return clr.LinearSegmentedColormap.from_list('diverging_clr', (
             (0.000, start_color),
             (first_quarter, start_color),
-            (0.500,mid_color),
+            (0.500, mid_color),
             (second_quarter, end_color),
             (1.000, end_color)))
 
@@ -63,18 +64,31 @@ class MatrixVisualise(object):
                              scaffold_second: ScaffoldDescriptor, res: string = 'exp/obs') -> np.ndarray:
         result = np.zeros_like(matrix, dtype='float64')
         expected = np.zeros_like(matrix, dtype='float64')
+        assert (
+            matrix.shape[0] == matrix.shape[1]
+        ), "Matrix must be square"
         if scaffold_first.scaffold_id == scaffold_second.scaffold_id:
-            n = len(matrix)
-            averages_at_dist = [np.nanmean([matrix[i, j - d] for i, j in zip(range(d, n), range(d, n))]) for d in
-                                range(n)]
-            for i in range(n):
-                for j in range(n):
-                    expected[i, j] = averages_at_dist[abs(i - j)]
+            n = matrix.shape[0]
+            expected = sum(
+                (
+                    np.diag(
+                        [matrix.trace(offset=i) / (n-abs(i))] * (n-abs(i)), k=i
+                    ) for i in range(1-n, n)
+                )
+            )
+            # sum(( np.diag([a.diagonal(offset=i).mean()] * (a.shape[0]-abs(i)), k=i) for i in range(1-a.shape[0], a.shape[0]) ))
+            # sum((np.diag([a.trace(offset=i) / (a.shape[0]-abs(i))] * (a.shape[0]-abs(i)), k=i) for i in range(1-a.shape[0], a.shape[0])))
+            # averages_at_dist = [np.nanmean([matrix[i, j - d] for i, j in zip(range(d, n), range(d, n))]) for d in
+            #                     range(n)]
+            # for i in range(n):
+            #     for j in range(n):
+            #         expected[i, j] = averages_at_dist[abs(i - j)]
         else:
-            averages_at_dist = np.nanmean(matrix)
-            for i in range(len(matrix)):
-                for j in range(len(matrix)):
-                    expected[i, j] = averages_at_dist[abs(i - j)]
+            expected = np.ones_like(matrix) * np.nanmean(matrix)
+            # averages_at_dist = np.nanmean(matrix)
+            # for i in range(len(matrix)):
+            #     for j in range(len(matrix)):
+            #         expected[i, j] = averages_at_dist[abs(i - j)]
 
         if res == 'exp/obs':
             return expected/matrix
