@@ -72,7 +72,7 @@ class MatrixVisualise(object):
             expected = sum(
                 (
                     np.diag(
-                        [matrix.trace(offset=i) / (n-abs(i))] * (n-abs(i)), k=i
+                        [np.nanmean(matrix.diagonal(offset=i))] * (n-abs(i)), k=i
                     ) for i in range(1-n, n)
                 )
             )
