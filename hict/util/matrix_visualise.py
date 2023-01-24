@@ -1,9 +1,9 @@
 import string
+
+import matplotlib.colors as clr
 import numpy as np
 from hict.api.ContactMatrixFacet import ContactMatrixFacet
 from hict.core.chunked_file import ChunkedFile
-import matplotlib.colors as clr
-
 from hict.core.common import ScaffoldDescriptor
 
 
@@ -76,19 +76,8 @@ class MatrixVisualise(object):
                     ) for i in range(1-n, n)
                 )
             )
-            # sum(( np.diag([a.diagonal(offset=i).mean()] * (a.shape[0]-abs(i)), k=i) for i in range(1-a.shape[0], a.shape[0]) ))
-            # sum((np.diag([a.trace(offset=i) / (a.shape[0]-abs(i))] * (a.shape[0]-abs(i)), k=i) for i in range(1-a.shape[0], a.shape[0])))
-            # averages_at_dist = [np.nanmean([matrix[i, j - d] for i, j in zip(range(d, n), range(d, n))]) for d in
-            #                     range(n)]
-            # for i in range(n):
-            #     for j in range(n):
-            #         expected[i, j] = averages_at_dist[abs(i - j)]
         else:
             expected = np.ones_like(matrix) * np.nanmean(matrix)
-            # averages_at_dist = np.nanmean(matrix)
-            # for i in range(len(matrix)):
-            #     for j in range(len(matrix)):
-            #         expected[i, j] = averages_at_dist[abs(i - j)]
 
         if res == 'exp/obs':
             return expected/matrix
