@@ -18,7 +18,7 @@ from hict.core.common import ATUDescriptor, ATUDirection, StripeDescriptor, Cont
     ScaffoldDirection, FinalizeRecordType, ContigHideType, QueryLengthUnit
 from hict.core.contig_tree import ContigTree
 from hict.core.scaffold_holder import ScaffoldHolder
-from hict.core.stripe_tree import StripeTree
+# from hict.core.stripe_tree import StripeTree
 from hict.util.h5helpers import create_dataset_if_not_exists, get_attribute_value_or_create_if_not_exists, \
     create_group_if_not_exists
 

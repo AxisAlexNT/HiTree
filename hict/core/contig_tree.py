@@ -52,34 +52,44 @@ class ContigTree:
             self.needs_changing_direction: bool = False
             self.needs_updating_scaffold_id_in_subtree: bool = False
             self.parent: Optional[ContigTree.Node] = None
+        
+        @staticmethod
+        def clone(node: 'ContigTree.Node') -> 'ContigTree.Node':
+            pass
 
-        def update_sizes(self):
-            self.subtree_count = 1
-            self.subtree_length_bins: Dict[np.int64, np.int64] = dict(
-                self.contig_descriptor.contig_length_at_resolution)
-            for resolution, present in self.contig_descriptor.presence_in_resolution.items():
-                self.subtree_length_px[resolution] = (
-                    self.contig_descriptor.contig_length_at_resolution[resolution] if present in (
+        def update_sizes(self) -> 'ContigTree.Node':
+            new_node = ContigTree.Node(self.contig_descriptor)
+            new_node.subtree_count = 1
+            new_node.subtree_length_bins: Dict[np.int64, np.int64] = dict(
+                new_node.contig_descriptor.contig_length_at_resolution)
+            for resolution, present in new_node.contig_descriptor.presence_in_resolution.items():
+                new_node.subtree_length_px[resolution] = (
+                    new_node.contig_descriptor.contig_length_at_resolution[resolution] if present in (
                         ContigHideType.AUTO_SHOWN, ContigHideType.FORCED_SHOWN
                     ) else 0
                 )
-            for resolution in self.subtree_length_bins.keys():
-                if self.left is not None:
-                    self.subtree_length_bins[resolution] += self.left.subtree_length_bins[resolution]
-                    self.subtree_length_px[resolution] += (
-                        self.left.subtree_length_px[resolution]
+            for resolution in new_node.subtree_length_bins.keys():
+                if new_node.left is not None:
+                    new_node.subtree_length_bins[resolution] += new_node.left.subtree_length_bins[resolution]
+                    new_node.subtree_length_px[resolution] += (
+                        new_node.left.subtree_length_px[resolution]
                     )
-                if self.right is not None:
-                    self.subtree_length_bins[resolution] += self.right.subtree_length_bins[resolution]
-                    self.subtree_length_px[resolution] += (
-                        self.right.subtree_length_px[resolution]
+                if new_node.right is not None:
+                    new_node.subtree_length_bins[resolution] += new_node.right.subtree_length_bins[resolution]
+                    new_node.subtree_length_px[resolution] += (
+                        new_node.right.subtree_length_px[resolution]
                     )
-            if self.left is not None:
-                self.subtree_count += self.left.subtree_count
-            if self.right is not None:
-                self.subtree_count += self.right.subtree_count
+            if new_node.left is not None:
+                new_node.subtree_count += new_node.left.subtree_count
+            if new_node.right is not None:
+                new_node.subtree_count += new_node.right.subtree_count
+                
+            return new_node
 
-        def push(self) -> None:
+        def push(self) -> 'ContigTree.Node':
+            new_node = ContigTree.Node(
+                self.contig_descriptor
+            )
             if self.needs_changing_direction:
                 (self.left, self.right) = (self.right, self.left)
                 if self.left is not None:
