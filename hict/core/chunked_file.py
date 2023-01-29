@@ -14,7 +14,7 @@ from scipy.sparse import coo_array, csr_array, csc_array
 
 from hict.core.AGPProcessor import *
 from hict.core.FASTAProcessor import FASTAProcessor
-from hict.core.common import ATUDescriptor, StripeDescriptor, ContigDescriptor, ScaffoldDescriptor, ScaffoldBorders, \
+from hict.core.common import ATUDescriptor, ATUDirection, StripeDescriptor, ContigDescriptor, ScaffoldDescriptor, ScaffoldBorders, \
     ScaffoldDirection, FinalizeRecordType, ContigHideType, QueryLengthUnit
 from hict.core.contig_tree import ContigTree
 from hict.core.scaffold_holder import ScaffoldHolder
@@ -245,6 +245,30 @@ class ChunkedFile(object):
             )
             self.scaffold_holder.insert_saved_scaffold__(scaffold_descriptor)
 
+    def read_atl(
+        self,
+        resolutions: np.ndarray,
+        f: h5py.File
+    ) -> Dict[np.int64, ATUDescriptor]:
+        resolution_atus: Dict[np.int64, ATUDescriptor] = dict()
+
+        for resolution in resolutions:
+            atl_group: h5py.Group = f[f'/resolutions/{resolution}/atl']
+            basis_atu: h5py.Dataset = atl_group['basis_atu']
+
+            atus = [
+                ATUDescriptor.make_atu_descriptor(
+                    stripe_descriptor=row[0],
+                    start_index_in_stripe_incl=row[1],
+                    end_index_in_stripe_excl=row[2],
+                    direction=ATUDirection(row[3])
+                ) for row in basis_atu
+            ]
+
+            resolution_atus[resolution] = atus
+
+        return resolution_atus
+
     def read_contig_data(
             self,
             f: h5py.File
@@ -311,10 +335,9 @@ class ChunkedFile(object):
         stripes_group: h5py.Group = f[f'/resolutions/{resolution}/stripes']
         ordered_stripe_ids_ds: h5py.Dataset = stripes_group['ordered_stripe_ids']
         stripe_lengths_bins: h5py.Dataset = stripes_group['stripe_length_bins']
-        stripe_lengths_bp: h5py.Dataset = stripes_group['stripe_length_bp']
-        stripe_id_to_contig_id: h5py.Dataset = stripes_group['stripes_contig_id']
-        stripes_bin_weights: Optional[h5py.Dataset] = stripes_group[
-            'stripes_bin_weights'] if 'stripes_bin_weights' in stripes_group.keys() else None
+        stripes_bin_weights: Optional[h5py.Dataset] = (
+            stripes_group['stripes_bin_weights']
+        ) if 'stripes_bin_weights' in stripes_group.keys() else None
 
         stripe_tree = StripeTree(resolution)
 
@@ -322,8 +345,6 @@ class ChunkedFile(object):
             StripeDescriptor.make_stripe_descriptor(
                 stripe_id,
                 stripe_length_bins,
-                stripe_length_bp,
-                self.contig_tree.contig_id_to_node_in_tree[stripes_contig_id].contig_descriptor,
                 np.array(
                     np.nan_to_num(
                         stripes_bin_weights[stripe_id, :stripe_length_bins], copy=False),
@@ -331,20 +352,18 @@ class ChunkedFile(object):
                 ) if stripes_bin_weights is not None else np.ones(stripe_length_bins, dtype=np.float64)
             ) for stripe_id, (
                 stripe_length_bins,
-                stripe_length_bp,
-                stripes_contig_id
             ) in enumerate(
                 zip(
                     stripe_lengths_bins,
-                    stripe_lengths_bp,
-                    stripe_id_to_contig_id
                 )
             )
         ]
 
         for stripe_id in ordered_stripe_ids_ds:
             stripe_tree.insert_at_position(
-                stripe_tree.get_node_count(), stripe_descriptors[stripe_id])
+                stripe_tree.get_node_count(),
+                stripe_descriptors[stripe_id]
+            )
         return stripe_tree, dense_submatrix_size
 
     def get_stripes_for_range(
@@ -872,7 +891,8 @@ class ChunkedFile(object):
             delta_px_between_segment_first_contig_start_and_query_start: np.int64 = start_px_incl - less_size - 1
             assert delta_px_between_segment_first_contig_start_and_query_start >= 0
 
-            total_segment_length_px: np.int64 = es.segment.get_sizes()[2 if exclude_hidden_contigs else 0][resolution]
+            total_segment_length_px: np.int64 = es.segment.get_sizes(
+            )[2 if exclude_hidden_contigs else 0][resolution]
 
             atus: List[ATUDescriptor] = []
 
@@ -881,11 +901,12 @@ class ChunkedFile(object):
 
             ContigTree.traverse_nodes_at_resolution(
                 es.segment, resolution, exclude_hidden_contigs, traverse_fn)
-            
+
             assert (
-                sum(map(lambda atu: atu.end_index_in_stripe_excl - atu.start_index_in_stripe_incl, atus)) == total_segment_length_px
-            ), "ATUs total length is less than exposed segment length??"            
-            
+                sum(map(lambda atu: atu.end_index_in_stripe_excl -
+                    atu.start_index_in_stripe_incl, atus)) == total_segment_length_px
+            ), "ATUs total length is less than exposed segment length??"
+
             first_contig_node_in_segment: Optional[ContigTree.Node] = es.segment.leftmost(
             )
 
@@ -909,20 +930,22 @@ class ChunkedFile(object):
                     index_of_atu_containing_start-1
                 ] if index_of_atu_containing_start > 0 else np.int64(0)
             )
-            
+
             old_first_atu: ATUDescriptor = atus[index_of_atu_containing_start]
             new_first_atu: ATUDescriptor = ATUDescriptor.make_atu_descriptor(
                 old_first_atu.stripe_descriptor,
-                old_first_atu.start_index_in_stripe_incl + (delta_px_between_segment_first_contig_start_and_query_start - length_of_atus_before_one_containing_start_px),
+                old_first_atu.start_index_in_stripe_incl +
+                (delta_px_between_segment_first_contig_start_and_query_start -
+                 length_of_atus_before_one_containing_start_px),
                 old_first_atu.end_index_in_stripe_excl,
                 old_first_atu.direction
             )
-            
+
             atus[index_of_atu_containing_start] = new_first_atu
             result_atus = atus[index_of_atu_containing_start:]
-            
+
             # TODO:
-            # delta_between_right_px_and_exposed_segment: np.int64 = 
+            # delta_between_right_px_and_exposed_segment: np.int64 =
 
         self.contig_tree.commit_exposed_segment(es)
         return result_atus

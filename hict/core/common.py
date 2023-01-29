@@ -35,26 +35,20 @@ class ScaffoldBorders(RecordClass):
     end_contig_id: np.int64
 
 
-class StripeDescriptor(RecordClass):  # NamedTuple):
+class StripeDescriptor(RecordClass):
     stripe_id: np.int64
     stripe_length_bins: np.int64
-    stripe_length_bp: np.int64
-    contig_descriptor: ContigDescriptor
     bin_weights: Optional[np.ndarray]
 
     @staticmethod
     def make_stripe_descriptor(
             stripe_id: np.int64,
             stripe_length_bins: np.int64,
-            stripe_length_bp: np.int64,
-            contig_descriptor: ContigDescriptor,
             bin_weights: Optional[np.ndarray] = None
     ) -> 'StripeDescriptor':
         return StripeDescriptor(
             stripe_id,
             stripe_length_bins,
-            stripe_length_bp,
-            contig_descriptor,
             bin_weights
         )
 
@@ -63,13 +57,9 @@ class StripeDescriptor(RecordClass):  # NamedTuple):
             return (
                 self.stripe_id,
                 self.stripe_length_bins,
-                self.stripe_length_bp,
-                self.contig_descriptor,
             ) == (
                 o.stripe_id,
                 o.stripe_length_bins,
-                o.stripe_length_bp,
-                o.contig_descriptor,
             )
         return False
 
@@ -80,7 +70,6 @@ class ATUDirection(Enum):
 
 
 class ATUDescriptor(RecordClass):
-    atu_id: np.int64
     stripe_descriptor: StripeDescriptor
     start_index_in_stripe_incl: np.int64
     end_index_in_stripe_excl: np.int64
@@ -95,8 +84,8 @@ class ATUDescriptor(RecordClass):
     ) -> 'ATUDescriptor':
         assert (
             start_index_in_stripe_incl < end_index_in_stripe_excl
-        ), "All ATUs should have their start preceeding end, no empty ATUs are allowed, direction is controlled by ATUDirection"
-        return ContigDescriptor(
+        ), f"All ATUs should have their start preceeding end ({start_index_in_stripe_incl} < {end_index_in_stripe_excl}), no empty ATUs are allowed, direction ({direction}) is controlled by ATUDirection"
+        return ATUDescriptor(
             stripe_descriptor,
             start_index_in_stripe_incl,
             end_index_in_stripe_excl,
@@ -106,13 +95,11 @@ class ATUDescriptor(RecordClass):
     def __eq__(self, o: object) -> bool:
         if isinstance(o, ATUDescriptor):
             return (
-                self.contig_descriptor,
                 self.stripe_descriptor,
                 self.start_index_in_stripe_incl,
                 self.end_index_in_stripe_excl,
                 self.direction
             ) == (
-                o.contig_descriptor,
                 o.stripe_descriptor,
                 o.start_index_in_stripe_incl,
                 o.end_index_in_stripe_excl,
@@ -146,8 +133,9 @@ class ATUDescriptor(RecordClass):
             return []
 
         def reduce_fn(merged: List[ATUDescriptor], atu: ATUDescriptor) -> List[ATUDescriptor]:
-            assert len(
-                merged) > 0, "At least one element must be added by initial condition"
+            assert (
+                len(merged) > 0
+            ), "At least one element must be added by initial condition"
             d1, d2 = ATUDescriptor.merge(merged[-1], atu)
             merged[-1] = d1
             if d2 is not None:
@@ -207,10 +195,10 @@ class ContigDescriptor(RecordClass):
                 resolution: np.cumsum(
                     tuple(
                         map(
-                            lambda atu: atu.end_index_in_stripe_excl - atu.start_index_in_stripe_incl, atus
+                            lambda atu: atu.end_index_in_stripe_excl - atu.start_index_in_stripe_incl, atus[resolution]
                         )
                     ), dtype=np.int64)
-                for resolution in contig_length_at_resolution.keys()
+                for resolution in contig_presence_in_resolution.keys()
             }
         )
 
@@ -219,11 +207,15 @@ class ContigDescriptor(RecordClass):
             return (
                 self.contig_id,
                 self.direction,
-                self.contig_length_at_resolution
+                self.contig_length_at_resolution,
+                self.atus,
+                self.atu_prefix_sum_length_bins
             ) == (
                 o.contig_id,
                 o.direction,
-                o.contig_length_at_resolution
+                o.contig_length_at_resolution,
+                o.atus,
+                o.atu_prefix_sum_length_bins
             )
         return False
 
