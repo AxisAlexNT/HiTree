@@ -4,6 +4,8 @@ import sys
 import threading
 from typing import Dict, Optional, Tuple, List, Callable, NamedTuple
 
+from copy import deepcopy
+
 import numpy as np
 
 from hict.core.common import ContigDirection, ContigDescriptor, QueryLengthUnit, ContigHideType
@@ -27,38 +29,93 @@ class ContigTree:
         # subtree_count_excluding_hidden: np.int64
         subtree_length_bins: Dict[np.int64, np.int64]
         subtree_length_px: Dict[np.int64, np.int64]
+        y_priority: np.int64
+        left: Optional['ContigTree.Node']
+        right: Optional['ContigTree.Node']
+        subtree_count: np.int64
+        # Second implicit key for the treap (length):
+        subtree_length_bins: Dict[np.int64, np.int64]
+        # Third implicit key for treap:
+        subtree_length_px: Dict[np.int64, np.int64]
+        needs_changing_direction: bool
+        needs_updating_scaffold_id_in_subtree: bool
+        parent: Optional['ContigTree.Node']
 
-        def __init__(self,
-                     contig_descriptor: ContigDescriptor
-                     ) -> None:
+        def __init__(
+            self,
+            contig_descriptor: ContigDescriptor,
+            subtree_count: np.int64,
+            subtree_length_bins: Dict[np.int64, np.int64],
+            subtree_length_px: Dict[np.int64, np.int64],
+            y_priority: np.int64,
+            left: Optional['ContigTree.Node'],
+            right: Optional['ContigTree.Node'],
+            needs_changing_direction: bool,
+            needs_updating_scaffold_id_in_subtree: bool,
+            parent: Optional['ContigTree.Node'],
+        ) -> None:
             super().__init__()
-            self.contig_descriptor = contig_descriptor
-            self.y_priority: np.int64 = np.int64(
-                random.randint(1 - sys.maxsize, sys.maxsize - 1))
-            self.left: Optional[ContigTree.Node] = None
-            self.right: Optional[ContigTree.Node] = None
-            # First implicit key for the treap (count):
-            self.subtree_count: np.int64 = np.int64(1)
+            self.contig_descriptor: ContigDescriptor = contig_descriptor
+            self.y_priority: np.int64 = y_priority
+            self.left: Optional['ContigTree.Node'] = left
+            self.right: Optional['ContigTree.Node'] = right
+            self.subtree_count: np.int64 = subtree_count
             # Second implicit key for the treap (length):
-            self.subtree_length_bins = dict(
-                contig_descriptor.contig_length_at_resolution)
+            self.subtree_length_bins: Dict[np.int64,
+                                           np.int64] = subtree_length_bins
             # Third implicit key for treap:
-            self.subtree_length_px = dict()
+            self.subtree_length_px: Dict[np.int64,
+                                         np.int64] = subtree_length_px
+            self.needs_changing_direction: bool = needs_changing_direction
+            self.needs_updating_scaffold_id_in_subtree: bool = needs_updating_scaffold_id_in_subtree
+            self.parent: Optional['ContigTree.Node'] = parent
+
+        @staticmethod
+        def make_new_node_from_descriptor(
+            contig_descriptor: ContigDescriptor
+        ) -> 'ContigTree.Node':
+            subtree_length_px = dict()
             for resolution, present in contig_descriptor.presence_in_resolution.items():
-                self.subtree_length_px[resolution] = (
+                subtree_length_px[resolution] = (
                     contig_descriptor.contig_length_at_resolution[resolution] if present else np.int64(
                         0)
                 )
-            self.needs_changing_direction: bool = False
-            self.needs_updating_scaffold_id_in_subtree: bool = False
-            self.parent: Optional[ContigTree.Node] = None
-        
+            return ContigTree.Node(
+                contig_descriptor=contig_descriptor,
+                y_priority=np.int64(
+                    random.randint(1 - sys.maxsize, sys.maxsize - 1)),
+                left=None,
+                right=None,
+                parent=None,
+                subtree_count=np.int64(1),
+                subtree_length_bins=dict(
+                    contig_descriptor.contig_length_at_resolution),
+                subtree_length_px=subtree_length_px,
+                needs_changing_direction=False,
+                needs_updating_scaffold_id_in_subtree=False
+            )
+
         @staticmethod
-        def clone(node: 'ContigTree.Node') -> 'ContigTree.Node':
-            pass
+        def clone_node(n: 'ContigTree.Node') -> 'ContigTree.Node':
+            return ContigTree.Node(
+                contig_descriptor=n.contig_descriptor,
+                subtree_count=deepcopy(n.subtree_count),
+                subtree_length_bins=deepcopy(n.subtree_length_bins),
+                subtree_length_px=deepcopy(n.subtree_length_px),
+                left=n.left,
+                right=n.right,
+                parent=n.parent,
+                needs_changing_direction=deepcopy(n.needs_changing_direction),
+                needs_updating_scaffold_id_in_subtree=deepcopy(
+                    n.needs_updating_scaffold_id_in_subtree),
+                y_priority=deepcopy(n.y_priority),
+            )
+
+        def clone(self) -> 'ContigTree.Node':
+            return ContigTree.Node.clone_node(self)
 
         def update_sizes(self) -> 'ContigTree.Node':
-            new_node = ContigTree.Node(self.contig_descriptor)
+            new_node = self.clone()
             new_node.subtree_count = 1
             new_node.subtree_length_bins: Dict[np.int64, np.int64] = dict(
                 new_node.contig_descriptor.contig_length_at_resolution)
@@ -83,47 +140,42 @@ class ContigTree:
                 new_node.subtree_count += new_node.left.subtree_count
             if new_node.right is not None:
                 new_node.subtree_count += new_node.right.subtree_count
-                
+
             return new_node
 
         def push(self) -> 'ContigTree.Node':
-            new_node = ContigTree.Node(
-                self.contig_descriptor
-            )
-            if self.needs_changing_direction:
-                (self.left, self.right) = (self.right, self.left)
-                if self.left is not None:
-                    self.left.needs_changing_direction = \
-                        self.left.needs_changing_direction ^ self.needs_changing_direction
-                if self.right is not None:
-                    self.right.needs_changing_direction = \
-                        self.right.needs_changing_direction ^ self.needs_changing_direction
-                self.contig_descriptor.direction = ContigDirection(
-                    1 - self.contig_descriptor.direction.value)
-                self.needs_changing_direction = False
-            if self.needs_updating_scaffold_id_in_subtree:
-                if self.left is not None:
-                    self.left.contig_descriptor.scaffold_id = self.contig_descriptor.scaffold_id
-                    self.left.needs_updating_scaffold_id_in_subtree = True
-                if self.right is not None:
-                    self.right.contig_descriptor.scaffold_id = self.contig_descriptor.scaffold_id
-                    self.right.needs_updating_scaffold_id_in_subtree = True
-                self.needs_updating_scaffold_id_in_subtree = False
+            new_node = self.clone()
+            if new_node.needs_changing_direction:
+                (new_node.left, new_node.right) = (
+                    new_node.right, new_node.left)
+                if new_node.left is not None:
+                    new_node.left.needs_changing_direction = \
+                        new_node.left.needs_changing_direction ^ new_node.needs_changing_direction
+                if new_node.right is not None:
+                    new_node.right.needs_changing_direction = \
+                        new_node.right.needs_changing_direction ^ new_node.needs_changing_direction
+                new_node.contig_descriptor.direction = ContigDirection(
+                    1 - new_node.contig_descriptor.direction.value)
+                new_node.needs_changing_direction = False
+            if new_node.needs_updating_scaffold_id_in_subtree:
+                if new_node.left is not None:
+                    new_node.left.contig_descriptor.scaffold_id = new_node.contig_descriptor.scaffold_id
+                    new_node.left.needs_updating_scaffold_id_in_subtree = True
+                if new_node.right is not None:
+                    new_node.right.contig_descriptor.scaffold_id = new_node.contig_descriptor.scaffold_id
+                    new_node.right.needs_updating_scaffold_id_in_subtree = True
+                new_node.needs_updating_scaffold_id_in_subtree = False
+            return new_node
 
         def true_direction(self) -> ContigDirection:
-            self.push()
-            return self.contig_descriptor.direction
+            return self.contig_descriptor.direction ^ self.needs_changing_direction
 
-        def true_contig_descriptor(self) -> ContigDescriptor:
-            self.push()
-            return self.contig_descriptor
+        # def get_sizes(self):
+        #     self.update_sizes()
+        #     return self.subtree_length_bins, self.subtree_count, self.subtree_length_px
 
-        def get_sizes(self):
-            self.update_sizes()
-            return self.subtree_length_bins, self.subtree_count, self.subtree_length_px
-
-        def reverse_subtree(self):
-            self.needs_changing_direction = not self.needs_changing_direction
+        # def reverse_subtree(self):
+        #     self.needs_changing_direction = not self.needs_changing_direction
 
         def leftmost(self):
             return ContigTree.get_leftmost(self)
@@ -160,25 +212,26 @@ class ContigTree:
         if t is None:
             return None, None
         left_count: np.int64 = t.left.subtree_count if t.left is not None else 0
-        t.push()
+        new_t = t.push()
         if left_count >= k:
-            (t1, t2) = self.split_node_by_count(t.left, k)
-            t.left = t2
-            t.update_sizes()
+            (t1, t2) = self.split_node_by_count(new_t.left, k)
+            new_t.left = t2
+            new_t = new_t.update_sizes()
             if t1 is not None:
                 t1.parent = None
             if t2 is not None:
-                t2.parent = t
-            return t1, t
+                t2.parent = new_t
+            return t1, new_t
         else:
-            (t1, t2) = self.split_node_by_count(t.right, k - left_count - 1)
-            t.right = t1
-            t.update_sizes()
+            (t1, t2) = self.split_node_by_count(
+                new_t.right, k - left_count - 1)
+            new_t.right = t1
+            new_t = new_t.update_sizes()
             if t1 is not None:
-                t1.parent = t
+                t1.parent = new_t
             if t2 is not None:
                 t2.parent = None
-            return t, t2
+            return new_t, t2
 
     def split_node_by_length(
             self,
@@ -243,95 +296,96 @@ class ContigTree:
         if t is None:
             return None, None
         if k <= 0:
-            return None, t
+            return None, t.clone()
         assert resolution in t.subtree_length_bins.keys(), "Unknown resolution"
-        t.push()
+        new_t = t.push()
         left_length: np.int64 = (
-            (t.left.subtree_length_bins[resolution]
-             if t.left is not None else 0)
+            (new_t.left.subtree_length_bins[resolution]
+             if new_t.left is not None else 0)
             if not exclude_hidden_contigs else
-            (t.left.subtree_length_px[resolution] if t.left is not None else 0)
+            (new_t.left.subtree_length_px[resolution]
+             if new_t.left is not None else 0)
         )
         if k <= left_length:
             (t1, t2) = self.split_node_by_length_internal(
                 resolution,
-                t.left,
+                new_t.left,
                 k,
                 include_equal_to_the_left,
                 exclude_hidden_contigs
             )
-            t.left = t2
-            t.update_sizes()
+            new_t.left = t2
+            new_t.update_sizes()
             if t1 is not None:
                 t1.parent = None
             if t2 is not None:
-                t2.parent = t
-            return t1, t
+                t2.parent = new_t
+            return t1, new_t
         else:
             contig_node_length: np.int64 = (
                 0 if (exclude_hidden_contigs and (
-                    t.contig_descriptor.presence_in_resolution[resolution] in
+                    new_t.contig_descriptor.presence_in_resolution[resolution] in
                     (
                         ContigHideType.AUTO_HIDDEN,
                         ContigHideType.FORCED_HIDDEN,
                     )
-                )) else t.contig_descriptor.contig_length_at_resolution[resolution]
+                )) else new_t.contig_descriptor.contig_length_at_resolution[resolution]
             )
             if left_length < k <= (left_length + contig_node_length):
                 if include_equal_to_the_left:
-                    t2 = t.right
-                    t.right = None
-                    t.update_sizes()
+                    t2 = new_t.right
+                    new_t.right = None
+                    new_t = new_t.update_sizes()
                     if t2 is not None:
                         t2.parent = None
-                    return t, t2
+                    return new_t, t2
                 else:
-                    t1 = t.left
-                    t.left = None
-                    t.update_sizes()
+                    t1 = new_t.left
+                    new_t.left = None
+                    new_t = new_t.update_sizes()
                     if t1 is not None:
                         t1.parent = None
-                    return t1, t
+                    return t1, new_t
 
             else:
                 (t1, t2) = self.split_node_by_length_internal(
                     resolution,
-                    t.right,
+                    new_t.right,
                     k - (left_length + contig_node_length),
                     include_equal_to_the_left,
                     exclude_hidden_contigs
                 )
-            t.right = t1
-            t.update_sizes()
+            new_t.right = t1
+            new_t = new_t.update_sizes()
             if t1 is not None:
-                t1.parent = t
+                t1.parent = new_t
             if t2 is not None:
                 t2.parent = None
-            return t, t2
+            return new_t, t2
 
     def merge_nodes(self, t1: Optional[Node], t2: Optional[Node]) -> Optional[Node]:
         if t1 is None:
-            return t2
+            return t2.clone()
         if t2 is None:
-            return t1
-        t1.push()
-        t2.push()
-        if t1.y_priority > t2.y_priority:
-            t1.right = self.merge_nodes(t1.right, t2)
-            t1.update_sizes()
-            if t1.left is not None:
-                t1.left.parent = t1
-            if t1.right is not None:
-                t1.right.parent = t1
-            return t1
+            return t1.clone()
+        new_t1 = t1.push()
+        new_t2 = t2.push()
+        if new_t1.y_priority > new_t2.y_priority:
+            new_t1.right = self.merge_nodes(new_t1.right, new_t2)
+            new_t1 = new_t1.update_sizes()
+            if new_t1.left is not None:
+                new_t1.left.parent = new_t1
+            if new_t1.right is not None:
+                new_t1.right.parent = new_t1
+            return new_t1
         else:
-            t2.left = self.merge_nodes(t1, t2.left)
-            t2.update_sizes()
-            if t2.left is not None:
-                t2.left.parent = t2
-            if t2.right is not None:
-                t2.right.parent = t2
-            return t2
+            new_t2.left = self.merge_nodes(new_t1, new_t2.left)
+            new_t2 = new_t2.update_sizes()
+            if new_t2.left is not None:
+                new_t2.left.parent = new_t2
+            if new_t2.right is not None:
+                new_t2.right.parent = new_t2
+            return new_t2
 
     def get_left_subsize(
             self,

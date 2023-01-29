@@ -292,7 +292,7 @@ class ChunkedFile(object):
         resolution_to_contig_hide_type: Dict[np.int64, np.ndarray] = dict()
         #resolution_to_contig_atus: Dict[np.int64, List[List[ATUDescriptor]]] = dict()
         contig_id_to_atus: List[Dict[np.int64, List[ATUDescriptor]]] = [
-            dict() for _ in range(contig_count)]
+            {resolution: [] for resolution in self.resolutions} for _ in range(contig_count)]
         for resolution in self.resolutions:
             contigs_group: h5py.Group = f[f'/resolutions/{resolution}/contigs/']
             contig_length_bins_ds: h5py.Dataset = contigs_group['contig_length_bins']
