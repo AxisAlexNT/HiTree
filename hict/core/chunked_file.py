@@ -50,7 +50,8 @@ class ChunkedFile(object):
     ) -> None:
         super().__init__()
         self.filepath: str = filepath
-        self.matrix_trees: Dict[np.int64, StripeTree] = dict()
+        self.stripes: Dict[np.int64, List[StripeDescriptor]] = dict()
+        self.atl: Dict[np.int64, List[ATUDescriptor]] = dict()
         self.contig_names: List[str] = []
         self.contig_name_to_contig_id: Dict[str, np.int64] = dict()
         self.contig_lengths_bp: Dict[np.int64, np.int64] = dict()
@@ -88,12 +89,21 @@ class ChunkedFile(object):
                 dtype=np.int64
             )
             self.resolutions = resolutions
-            self.dtype = f[f'resolutions/{min(resolutions)}/treap_coo/block_vals'].dtype
+            self.dtype = f[f'resolutions/{max(resolutions)}/treap_coo/block_vals'].dtype
+
+            for resolution in resolutions:
+                (
+                    self.stripes[resolution],
+                    self.dense_submatrix_size[resolution]
+                ) = self.read_stripe_data(f, resolution)
+
+            self.atl = self.read_atl(f)
 
             (
                 contig_id_to_contig_length_bp,
                 resolution_to_contig_length_bins,
                 resolution_to_contig_hide_type,
+                contig_id_to_atus,
                 contig_names
             ) = self.read_contig_data(f)
             self.contig_names = contig_names
@@ -153,16 +163,11 @@ class ChunkedFile(object):
                     np.int64,
                     ContigHideType
                 ] = contig_id_to_hide_type_by_resolution[contig_id]
-                # TODO: Update 1:0 to 1:1
                 contig_presence_at_resolution[0] = ContigHideType.FORCED_SHOWN
 
                 # Hide small contigs only at zoomed resolutions
                 for res in resolutions[1:]:
                     if contig_id_to_contig_length_bp[contig_id] < res:
-                        # contig_presence_at_resolution[res] = ContigHideType(max(
-                        #     contig_presence_at_resolution[res].value,
-                        #     ContigHideType.AUTO_HIDDEN.value
-                        # ))
                         contig_presence_at_resolution[res] = ContigHideType.AUTO_HIDDEN
                 contig_descriptor: ContigDescriptor = ContigDescriptor.make_contig_descriptor(
                     contig_id=contig_id,
@@ -171,6 +176,7 @@ class ChunkedFile(object):
                     contig_length_bp=contig_id_to_contig_length_bp[contig_id],
                     contig_length_at_resolution=resolution_to_contig_length,
                     contig_presence_in_resolution=contig_presence_at_resolution,
+                    atus=contig_id_to_atus[contig_id],
                     scaffold_id=contig_id_to_scaffold_id[contig_id]
                 )
                 contig_id_to_contig_descriptor.append(contig_descriptor)
@@ -179,13 +185,6 @@ class ChunkedFile(object):
                 contig_descriptor = contig_id_to_contig_descriptor[contig_id]
                 self.contig_tree.insert_at_position(
                     contig_descriptor, self.contig_tree.get_node_count())
-
-            for resolution in resolutions:
-                # Construct matrix tree:
-                (
-                    self.matrix_trees[resolution],
-                    self.dense_submatrix_size[resolution]
-                ) = self.read_stripe_data(f, resolution)
 
             self.restore_scaffolds(f)
 
@@ -247,18 +246,17 @@ class ChunkedFile(object):
 
     def read_atl(
         self,
-        resolutions: np.ndarray,
         f: h5py.File
     ) -> Dict[np.int64, ATUDescriptor]:
         resolution_atus: Dict[np.int64, ATUDescriptor] = dict()
 
-        for resolution in resolutions:
+        for resolution in self.resolutions:
             atl_group: h5py.Group = f[f'/resolutions/{resolution}/atl']
             basis_atu: h5py.Dataset = atl_group['basis_atu']
 
             atus = [
                 ATUDescriptor.make_atu_descriptor(
-                    stripe_descriptor=row[0],
+                    stripe_descriptor=self.stripes[resolution][row[0]],
                     start_index_in_stripe_incl=row[1],
                     end_index_in_stripe_excl=row[2],
                     direction=ATUDirection(row[3])
@@ -276,6 +274,7 @@ class ChunkedFile(object):
         np.ndarray,
         Dict[np.int64, np.ndarray],
         Dict[np.int64, np.ndarray],
+        List[Dict[np.int64, List[ATUDescriptor]]],
         List[str]
     ]:
         contig_info_group: h5py.Group = f['/contig_info/']
@@ -291,12 +290,21 @@ class ChunkedFile(object):
         resolution_to_contig_length_bins: Dict[np.int64, np.ndarray] = dict()
         # Resolution -> [ContigId -> ContigHideType]
         resolution_to_contig_hide_type: Dict[np.int64, np.ndarray] = dict()
+        #resolution_to_contig_atus: Dict[np.int64, List[List[ATUDescriptor]]] = dict()
+        contig_id_to_atus: List[Dict[np.int64, List[ATUDescriptor]]] = [
+            dict() for _ in range(contig_count)]
         for resolution in self.resolutions:
-            resolution_group: h5py.Group = f[f'/resolutions/{resolution}/']
-            contig_length_bins_ds: h5py.Dataset = resolution_group['contigs/contig_length_bins']
-            contig_hide_type_ds: h5py.Dataset = resolution_group['contigs/contig_hide_type']
+            contigs_group: h5py.Group = f[f'/resolutions/{resolution}/contigs/']
+            contig_length_bins_ds: h5py.Dataset = contigs_group['contig_length_bins']
+            contig_hide_type_ds: h5py.Dataset = contigs_group['contig_hide_type']
+            contig_atus: h5py.Dataset = contigs_group['atl']
+
             assert len(
                 contig_length_bins_ds) == contig_count, "Different contig count in different datasets??"
+
+            for contig_id, basis_atu_id in contig_atus:
+                contig_id_to_atus[contig_id][resolution].append(
+                    self.atl[resolution][basis_atu_id])
 
             resolution_to_contig_length_bins[resolution] = np.array(
                 contig_length_bins_ds[:].astype(np.int64),
@@ -317,6 +325,7 @@ class ChunkedFile(object):
             contig_id_to_contig_length_bp,
             resolution_to_contig_length_bins,
             resolution_to_contig_hide_type,
+            contig_id_to_atus,
             contig_names
         )
 
@@ -325,23 +334,16 @@ class ChunkedFile(object):
             f: h5py.File,
             resolution: np.int64
     ) -> Tuple[
-        StripeTree,
+        List[StripeDescriptor],
         np.int64
     ]:
-        resolution_group: h5py.Group = f[f'/resolutions/{resolution}/']
-        treap_coo_group: h5py.Group = resolution_group['treap_coo']
-        dense_submatrix_size: np.int64 = treap_coo_group.attrs.get(
-            'dense_submatrix_size')
         stripes_group: h5py.Group = f[f'/resolutions/{resolution}/stripes']
-        ordered_stripe_ids_ds: h5py.Dataset = stripes_group['ordered_stripe_ids']
         stripe_lengths_bins: h5py.Dataset = stripes_group['stripe_length_bins']
         stripes_bin_weights: Optional[h5py.Dataset] = (
             stripes_group['stripes_bin_weights']
         ) if 'stripes_bin_weights' in stripes_group.keys() else None
 
-        stripe_tree = StripeTree(resolution)
-
-        stripe_descriptors: List[StripeDescriptor] = [
+        stripes: List[StripeDescriptor] = [
             StripeDescriptor.make_stripe_descriptor(
                 stripe_id,
                 stripe_length_bins,
@@ -350,21 +352,14 @@ class ChunkedFile(object):
                         stripes_bin_weights[stripe_id, :stripe_length_bins], copy=False),
                     dtype=np.float64
                 ) if stripes_bin_weights is not None else np.ones(stripe_length_bins, dtype=np.float64)
-            ) for stripe_id, (
-                stripe_length_bins,
-            ) in enumerate(
-                zip(
-                    stripe_lengths_bins,
-                )
-            )
+            ) for (
+                stripe_id, stripe_length_bins
+            ) in enumerate(stripe_lengths_bins)
         ]
 
-        for stripe_id in ordered_stripe_ids_ds:
-            stripe_tree.insert_at_position(
-                stripe_tree.get_node_count(),
-                stripe_descriptors[stripe_id]
-            )
-        return stripe_tree, dense_submatrix_size
+        dense_submatrix_size: np.int64 = max(stripe_lengths_bins)
+
+        return stripes, dense_submatrix_size
 
     def get_stripes_for_range(
             self,
