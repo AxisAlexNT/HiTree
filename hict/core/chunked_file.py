@@ -466,128 +466,6 @@ class ChunkedFile(object):
 
             return delta_in_px_between_left_query_border_and_stripe_start, stripes
 
-    def get_atus_for_pixel_range(
-            self,
-            resolution: np.int64,
-            start_px_incl: np.int64,
-            end_px_excl: np.int64,
-            exclude_hidden: bool
-    ) -> Tuple[
-        np.int64,
-        List[StripeDescriptor]
-    ]:
-        (t_l, t_s, t_gr) = self.contig_tree.expose_segment(
-            resolution=resolution,
-            start=start_px_incl,
-            end=(end_px_excl-1),
-            units=(QueryLengthUnit.PIXELS if exclude_hidden else QueryLengthUnit.BINS)
-        )
-
-        left_bins, left_count, left_px = t_l.get_sizes()
-
-        segment_atus: List[ATUDescriptor] = []
-        segment_prefix_sum_bins: np.ndarray = np.zeros(shape=0, dtype=np.int64)
-
-        def reverse_atu(atu: ATUDescriptor):
-            new_atu = atu.clone()
-            new_atu.direction = ATUDirection(1 - new_atu.direction)
-            return new_atu
-
-        def traverse_fn(n: ContigTree.Node):
-            if n.direction == ContigDirection.FORWARD:
-                segment_atus.extend(n.contig_descriptor.atus)
-                segment_prefix_sum_bins = np.concatenate(
-                    (
-                        segment_prefix_sum_bins,
-                        n.contig_descriptor.atu_prefix_sum_length_bins +
-                        segment_prefix_sum_bins[-1]
-                    )
-                )
-            else:
-                segment_atus.extend(map(
-                    reverse_atu,
-                    n.contig_descriptor.atus
-                ))
-                segment_prefix_sum_bins = np.concatenate(
-                    (
-                        segment_prefix_sum_bins,
-                        np.flip(n.contig_descriptor.atu_prefix_sum_length_bins) +
-                        segment_prefix_sum_bins[-1]
-                    )
-                )
-
-        ContigTree.traverse_nodes_at_resolution(
-            t_s,
-            resolution,
-            exclude_hidden,
-            traverse_fn
-        )
-        
-        # Find index of ATU where start position falls into
-        
-
-        if exclude_hidden_contigs:
-            stripe_tree: StripeTree = self.matrix_trees[resolution]
-
-            stripes_in_range = stripe_tree.get_stripes_in_segment(
-                start_px_incl,
-                end_px_excl,
-                QueryLengthUnit.PIXELS
-            )
-
-            stripes: List[StripeDescriptor] = list(filter(
-                lambda s: (
-                    s.contig_descriptor.presence_in_resolution[resolution] in (
-                        ContigHideType.AUTO_SHOWN,
-                        ContigHideType.FORCED_SHOWN
-                    )
-                ),
-                stripes_in_range.stripes
-            ))
-
-            if len(stripes) == 0:
-                return 0, []
-
-            # assert start_px_incl >= first_segment_contig_start_px, "Contig starts after its covered query?"
-
-            # delta_in_px_between_left_query_border_and_stripe_start: np.int64 = (
-            #     start_px_incl - first_segment_contig_start_px +
-            #     stripes_in_range.first_stripe_start_bins - first_segment_contig_start_bins
-            # )
-
-            delta_in_px_between_left_query_border_and_stripe_start: np.int64 = (
-                start_px_incl - stripes_in_range.first_stripe_start_px
-            )
-
-            query_length: np.int64 = end_px_excl - start_px_incl
-            sum_stripe_lengths = sum([s.stripe_length_bins for s in stripes])
-            assert (
-                sum_stripe_lengths >= query_length
-            ), f"Sum of stripes lengths {sum_stripe_lengths} is less than was queried: {query_length}?"
-
-            return delta_in_px_between_left_query_border_and_stripe_start, stripes
-        else:
-            first_segment_contig_start_bins: np.int64 = start_px_incl
-            contig_segment_end_bins: np.int64 = end_px_excl
-
-            stripe_tree: StripeTree = self.matrix_trees[resolution]
-            # 1+start because (start) bins should not be touched to the left of the query
-            stripes_in_range = stripe_tree.get_stripes_in_segment(
-                1 + first_segment_contig_start_bins,
-                contig_segment_end_bins
-            )
-
-            stripes: List[StripeDescriptor] = stripes_in_range.stripes
-
-            if len(stripes) == 0:
-                return 0, []
-
-            delta_in_px_between_left_query_border_and_stripe_start: np.int64 = (
-                first_segment_contig_start_bins - stripes_in_range.first_stripe_start_bins
-            )
-
-            return delta_in_px_between_left_query_border_and_stripe_start, stripes
-
     # # @lru_cache(maxsize=BLOCK_CACHE_SIZE, typed=True)
     # # @cachedmethod(cache=lambda s: s.block_cache,
     # #               key=lambda s, f, r, rb, cb: hashkey(
@@ -955,8 +833,10 @@ class ChunkedFile(object):
         if es.segment is None:
             assert query_length <= 0, "Query is not zero-length, but no ATUs were found?"
             result_atus = []
-            delta_px_between_start = np.int64(0)
         else:
+            # TODO: maybe no update_sizes
+            segment_size = es.segment.get_sizes(
+            )[2 if exclude_hidden_contigs else 0][resolution]
             less_size: np.int64
             if es.less is not None:
                 less_size = es.less.get_sizes(
@@ -974,14 +854,20 @@ class ChunkedFile(object):
             def traverse_fn(node: ContigTree.Node) -> None:
                 atus.extend(node.contig_descriptor.atus)
 
+            # TODO: maybe no need in push
             ContigTree.traverse_nodes_at_resolution(
-                es.segment, resolution, exclude_hidden_contigs, traverse_fn)
+                es.segment,
+                resolution,
+                exclude_hidden_contigs,
+                traverse_fn
+            )
 
             assert (
                 sum(map(lambda atu: atu.end_index_in_stripe_excl -
                     atu.start_index_in_stripe_incl, atus)) == total_segment_length_px
             ), "ATUs total length is less than exposed segment length??"
 
+            # TODO: maybe no push is needed
             first_contig_node_in_segment: Optional[ContigTree.Node] = es.segment.leftmost(
             )
 
@@ -1019,11 +905,139 @@ class ChunkedFile(object):
             atus[index_of_atu_containing_start] = new_first_atu
             result_atus = atus[index_of_atu_containing_start:]
 
-            # TODO:
-            # delta_between_right_px_and_exposed_segment: np.int64 =
+            
+            delta_between_right_px_and_exposed_segment: np.int64 = end_px_excl - (less_size + segment_size)
+            # TODO: maybe no push
+            last_contig_node = es.segment.rightmost()
+            last_contig_length: np.int64 = last_contig_node.contig_descriptor.contig_length_at_resolution[resolution]
+            delta_from_contig_start_to_end_excl: np.int64 = last_contig_length - delta_between_right_px_and_exposed_segment
+            
+            # atu_index_where_
+            
 
-        self.contig_tree.commit_exposed_segment(es)
+        # self.contig_tree.commit_exposed_segment(es)
         return result_atus
+
+    def get_atus_for_pixel_range(
+            self,
+            resolution: np.int64,
+            start_px_incl: np.int64,
+            end_px_excl: np.int64,
+            exclude_hidden: bool
+    ) -> Tuple[
+        np.int64,
+        List[StripeDescriptor]
+    ]:
+        (t_l, t_s, t_gr) = self.contig_tree.expose_segment(
+            resolution=resolution,
+            start=start_px_incl,
+            end=(end_px_excl-1),
+            units=(QueryLengthUnit.PIXELS if exclude_hidden else QueryLengthUnit.BINS)
+        )
+
+        left_bins, left_count, left_px = t_l.get_sizes()
+
+        segment_atus: List[ATUDescriptor] = []
+        segment_prefix_sum_bins: np.ndarray = np.zeros(shape=0, dtype=np.int64)
+
+        def reverse_atu(atu: ATUDescriptor):
+            new_atu = atu.clone()
+            new_atu.direction = ATUDirection(1 - new_atu.direction)
+            return new_atu
+
+        def traverse_fn(n: ContigTree.Node):
+            if n.direction == ContigDirection.FORWARD:
+                segment_atus.extend(n.contig_descriptor.atus)
+                segment_prefix_sum_bins = np.concatenate(
+                    (
+                        segment_prefix_sum_bins,
+                        n.contig_descriptor.atu_prefix_sum_length_bins +
+                        segment_prefix_sum_bins[-1]
+                    )
+                )
+            else:
+                segment_atus.extend(map(
+                    reverse_atu,
+                    n.contig_descriptor.atus
+                ))
+                segment_prefix_sum_bins = np.concatenate(
+                    (
+                        segment_prefix_sum_bins,
+                        np.flip(n.contig_descriptor.atu_prefix_sum_length_bins) +
+                        segment_prefix_sum_bins[-1]
+                    )
+                )
+
+        ContigTree.traverse_nodes_at_resolution(
+            t_s,
+            resolution,
+            exclude_hidden,
+            traverse_fn
+        )
+
+        # Find index of ATU where start position falls into
+
+        if exclude_hidden_contigs:
+            stripe_tree: StripeTree = self.matrix_trees[resolution]
+
+            stripes_in_range = stripe_tree.get_stripes_in_segment(
+                start_px_incl,
+                end_px_excl,
+                QueryLengthUnit.PIXELS
+            )
+
+            stripes: List[StripeDescriptor] = list(filter(
+                lambda s: (
+                    s.contig_descriptor.presence_in_resolution[resolution] in (
+                        ContigHideType.AUTO_SHOWN,
+                        ContigHideType.FORCED_SHOWN
+                    )
+                ),
+                stripes_in_range.stripes
+            ))
+
+            if len(stripes) == 0:
+                return 0, []
+
+            # assert start_px_incl >= first_segment_contig_start_px, "Contig starts after its covered query?"
+
+            # delta_in_px_between_left_query_border_and_stripe_start: np.int64 = (
+            #     start_px_incl - first_segment_contig_start_px +
+            #     stripes_in_range.first_stripe_start_bins - first_segment_contig_start_bins
+            # )
+
+            delta_in_px_between_left_query_border_and_stripe_start: np.int64 = (
+                start_px_incl - stripes_in_range.first_stripe_start_px
+            )
+
+            query_length: np.int64 = end_px_excl - start_px_incl
+            sum_stripe_lengths = sum([s.stripe_length_bins for s in stripes])
+            assert (
+                sum_stripe_lengths >= query_length
+            ), f"Sum of stripes lengths {sum_stripe_lengths} is less than was queried: {query_length}?"
+
+            return delta_in_px_between_left_query_border_and_stripe_start, stripes
+        else:
+            first_segment_contig_start_bins: np.int64 = start_px_incl
+            contig_segment_end_bins: np.int64 = end_px_excl
+
+            stripe_tree: StripeTree = self.matrix_trees[resolution]
+            # 1+start because (start) bins should not be touched to the left of the query
+            stripes_in_range = stripe_tree.get_stripes_in_segment(
+                1 + first_segment_contig_start_bins,
+                contig_segment_end_bins
+            )
+
+            stripes: List[StripeDescriptor] = stripes_in_range.stripes
+
+            if len(stripes) == 0:
+                return 0, []
+
+            delta_in_px_between_left_query_border_and_stripe_start: np.int64 = (
+                first_segment_contig_start_bins - stripes_in_range.first_stripe_start_bins
+            )
+
+            return delta_in_px_between_left_query_border_and_stripe_start, stripes
 
     def get_coverage_matrix_pixels_internal(
             self,

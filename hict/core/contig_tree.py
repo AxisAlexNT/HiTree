@@ -174,9 +174,9 @@ class ContigTree:
         def true_direction(self) -> ContigDirection:
             return self.contig_descriptor.direction ^ self.needs_changing_direction
 
-        def get_sizes(self):
-            # self.update_sizes()
-            return self.subtree_length_bins, self.subtree_count, self.subtree_length_px
+        def get_sizes(self, update_sizes: bool = True):
+            node: ContigTree.Node = self.update_sizes() if update_sizes else self
+            return node.subtree_length_bins, node.subtree_count, node.subtree_length_px
 
         # def reverse_subtree(self):
         #     self.needs_changing_direction = not self.needs_changing_direction
@@ -619,8 +619,9 @@ class ContigTree:
     #         return contig_raw_node.contig_descriptor, left_subsize_count
 
     def insert_at_position(self, contig_descriptor: ContigDescriptor, index: np.int64, direction: ContigDirection):
-        new_node: ContigTree.Node = ContigTree.Node.make_new_node_from_descriptor(contig_descriptor)
-        with self.root_lock.gen_wlock():            
+        new_node: ContigTree.Node = ContigTree.Node.make_new_node_from_descriptor(
+            contig_descriptor)
+        with self.root_lock.gen_wlock():
             self.contig_id_to_node_in_tree[contig_descriptor.contig_id] = new_node
             if self.root is not None:
                 (l, r) = self.split_node_by_count(self.root, index)
@@ -644,7 +645,47 @@ class ContigTree:
             return 0
 
     @staticmethod
-    def get_rightmost(node: Optional['ContigTree.Node']) -> Optional['ContigTree.Node']:
+    def get_leftmost(
+        node: Optional['ContigTree.Node'],
+        push: bool = True
+    ) -> Optional['ContigTree.Node']:
+        if push:
+            return ContigTree.get_leftmost_with_push(node)
+        else:
+            return ContigTree.get_leftmost_no_push(node)
+
+    @staticmethod
+    def get_leftmost_with_push(node: Optional['ContigTree.Node']) -> Optional['ContigTree.Node']:
+        if node is None:
+            return None
+        current_node: ContigTree.Node = node
+        while current_node.left is not None:
+            current_node.push()
+            current_node = current_node.left
+        return current_node
+
+    @staticmethod
+    def get_leftmost_no_push(node: Optional['ContigTree.Node']) -> Optional['ContigTree.Node']:
+        if node is None:
+            return None
+        current_node: ContigTree.Node = node
+        while True:
+            next_node = current_node.left if not current_node.needs_changing_direction else current_node.right
+            if next_node is None:
+                return current_node
+
+    @staticmethod
+    def get_rightmost(
+        node: Optional['ContigTree.Node'],
+        push: bool = True
+    ) -> Optional['ContigTree.Node']:
+        if push:
+            return ContigTree.get_rightmost_with_push(node)
+        else:
+            return ContigTree.get_rightmost_no_push(node)
+
+    @staticmethod
+    def get_rightmost_with_push(node: Optional['ContigTree.Node']) -> Optional['ContigTree.Node']:
         if node is None:
             return None
         current_node: ContigTree.Node = node
@@ -654,14 +695,14 @@ class ContigTree:
         return current_node
 
     @staticmethod
-    def get_leftmost(node: Optional['ContigTree.Node']) -> Optional['ContigTree.Node']:
+    def get_rightmost_no_push(node: Optional['ContigTree.Node']) -> Optional['ContigTree.Node']:
         if node is None:
             return None
         current_node: ContigTree.Node = node
-        while current_node.left is not None:
-            current_node.push()
-            current_node = current_node.left
-        return current_node
+        while True:
+            next_node = current_node.right if not current_node.needs_changing_direction else current_node.left
+            if next_node is None:
+                return current_node
 
     def expose_segment_by_count(self, start_count: np.int64, end_count: np.int64) -> ExposedSegment:
         """
@@ -767,8 +808,48 @@ class ContigTree:
         ContigTree.traverse_node(new_t.right, f)
 
     @staticmethod
-    def traverse_nodes_at_resolution(t: Optional[Node], resolution: np.int64, exclude_hidden: bool,
-                                     f: Callable[[Node], None]):
+    def traverse_nodes_at_resolution(
+        t: Optional[Node],
+        resolution: np.int64,
+        exclude_hidden: bool,
+        f: Callable[[Node], None],
+        push: bool = True
+    ) -> None:
+        if push:
+            ContigTree.traverse_nodes_at_resolution_with_pushes(
+                t,
+                resolution,
+                exclude_hidden,
+                f
+            )
+        else:
+            if t is None:
+                return
+            assert (t.left is None) or (t.left.parent ==
+                                        t), "Left subtree has no parent link"
+            assert (t.right is None) or (t.right.parent ==
+                                         t), "Right subtree has no parent link"
+            ContigTree.traverse_nodes_at_resolution(
+                t.left if not t.needs_changing_direction else t.right,
+                f
+            )
+            if not exclude_hidden or t.contig_descriptor.presence_in_resolution[resolution] in (
+                    ContigHideType.AUTO_SHOWN,
+                    ContigHideType.FORCED_SHOWN
+            ):
+                f(t)
+            ContigTree.traverse_nodes_at_resolution(
+                t.right if not t.needs_changing_direction else t.left,
+                f
+            )
+
+    @staticmethod
+    def traverse_nodes_at_resolution_with_pushes(
+            t: Optional[Node],
+            resolution: np.int64,
+            exclude_hidden: bool,
+            f: Callable[[Node], None]
+    ) -> None:
         if t is None:
             return
         assert (t.left is None) or (t.left.parent ==
@@ -776,13 +857,13 @@ class ContigTree:
         assert (t.right is None) or (t.right.parent ==
                                      t), "Right subtree has no parent link"
         new_t = t.push()
-        ContigTree.traverse_nodes_at_resolution(new_t.left, f)
+        ContigTree.traverse_nodes_at_resolution_with_pushes(new_t.left, f)
         if not exclude_hidden or new_t.contig_descriptor.presence_in_resolution[resolution] in (
                 ContigHideType.AUTO_SHOWN,
                 ContigHideType.FORCED_SHOWN
         ):
             f(new_t)
-        ContigTree.traverse_nodes_at_resolution(new_t.right, f)
+        ContigTree.traverse_nodes_at_resolution_with_pushes(new_t.right, f)
 
     def traverse(self, f: Callable[[Node], None]):
         with self.root_lock.gen_rlock():
