@@ -5,6 +5,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 import numpy as np
 from frozendict import frozendict
 from recordclass import RecordClass
+from copy import deepcopy
 
 
 class QueryLengthUnit(Enum):
@@ -92,6 +93,20 @@ class ATUDescriptor(RecordClass):
             direction
         )
 
+    @staticmethod
+    def clone_atu_descriptor(
+        a: 'ATUDescriptor'
+    ) -> 'ATUDescriptor':
+        return ATUDescriptor(
+            a.stripe_descriptor,
+            deepcopy(a.start_index_in_stripe_incl),
+            deepcopy(a.end_index_in_stripe_excl),
+            deepcopy(a.direction)
+        )
+
+    def clone(self) -> 'ATUDescriptor':
+        return ATUDescriptor.clone_atu_descriptor(self)
+
     def __eq__(self, o: object) -> bool:
         if isinstance(o, ATUDescriptor):
             return (
@@ -156,7 +171,7 @@ class ScaffoldDescriptor(RecordClass):
 class ContigDescriptor(RecordClass):
     contig_id: np.int64
     contig_name: str
-    direction: ContigDirection
+    # direction: ContigDirection
     contig_length_at_resolution: frozendict  # Dict[np.int64, np.int64]
     scaffold_id: Optional[np.int64]
     presence_in_resolution: frozendict
@@ -170,7 +185,7 @@ class ContigDescriptor(RecordClass):
     def make_contig_descriptor(
             contig_id: np.int64,
             contig_name: str,
-            direction: ContigDirection,
+            # direction: ContigDirection,
             contig_length_bp: np.int64,
             contig_length_at_resolution: Dict[np.int64, np.int64],
             contig_presence_in_resolution: Dict[np.int64, ContigHideType],
@@ -185,7 +200,7 @@ class ContigDescriptor(RecordClass):
         return ContigDescriptor(
             contig_id,
             contig_name,
-            direction,
+            # direction,
             contig_length_at_resolution,
             scaffold_id,
             frozendict({**contig_presence_in_resolution, **
@@ -195,7 +210,8 @@ class ContigDescriptor(RecordClass):
                 resolution: np.cumsum(
                     tuple(
                         map(
-                            lambda atu: atu.end_index_in_stripe_excl - atu.start_index_in_stripe_incl, atus[resolution]
+                            lambda atu: atu.end_index_in_stripe_excl - \
+                            atu.start_index_in_stripe_incl, atus[resolution]
                         )
                     ), dtype=np.int64)
                 for resolution in contig_presence_in_resolution.keys()
@@ -206,13 +222,13 @@ class ContigDescriptor(RecordClass):
         if isinstance(o, ContigDescriptor):
             return (
                 self.contig_id,
-                self.direction,
+                # self.direction,
                 self.contig_length_at_resolution,
                 self.atus,
                 self.atu_prefix_sum_length_bins
             ) == (
                 o.contig_id,
-                o.direction,
+                # o.direction,
                 o.contig_length_at_resolution,
                 o.atus,
                 o.atu_prefix_sum_length_bins

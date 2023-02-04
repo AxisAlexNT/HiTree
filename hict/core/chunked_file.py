@@ -172,7 +172,7 @@ class ChunkedFile(object):
                 contig_descriptor: ContigDescriptor = ContigDescriptor.make_contig_descriptor(
                     contig_id=contig_id,
                     contig_name=contig_names[contig_id],
-                    direction=contig_id_to_direction[contig_id],
+                    # direction=contig_id_to_direction[contig_id],
                     contig_length_bp=contig_id_to_contig_length_bp[contig_id],
                     contig_length_at_resolution=resolution_to_contig_length,
                     contig_presence_in_resolution=contig_presence_at_resolution,
@@ -184,7 +184,10 @@ class ChunkedFile(object):
             for contig_id in ordered_contig_ids:
                 contig_descriptor = contig_id_to_contig_descriptor[contig_id]
                 self.contig_tree.insert_at_position(
-                    contig_descriptor, self.contig_tree.get_node_count())
+                    contig_descriptor,
+                    self.contig_tree.get_node_count(),
+                    direction=contig_id_to_direction[contig_id]
+                )
 
             self.restore_scaffolds(f)
 
@@ -463,16 +466,66 @@ class ChunkedFile(object):
 
             return delta_in_px_between_left_query_border_and_stripe_start, stripes
 
-    def get_atus_for_range(
+    def get_atus_for_pixel_range(
             self,
             resolution: np.int64,
             start_px_incl: np.int64,
             end_px_excl: np.int64,
-            exclude_hidden_contigs: bool  # = False
+            exclude_hidden: bool
     ) -> Tuple[
         np.int64,
         List[StripeDescriptor]
     ]:
+        (t_l, t_s, t_gr) = self.contig_tree.expose_segment(
+            resolution=resolution,
+            start=start_px_incl,
+            end=(end_px_excl-1),
+            units=(QueryLengthUnit.PIXELS if exclude_hidden else QueryLengthUnit.BINS)
+        )
+
+        left_bins, left_count, left_px = t_l.get_sizes()
+
+        segment_atus: List[ATUDescriptor] = []
+        segment_prefix_sum_bins: np.ndarray = np.zeros(shape=0, dtype=np.int64)
+
+        def reverse_atu(atu: ATUDescriptor):
+            new_atu = atu.clone()
+            new_atu.direction = ATUDirection(1 - new_atu.direction)
+            return new_atu
+
+        def traverse_fn(n: ContigTree.Node):
+            if n.direction == ContigDirection.FORWARD:
+                segment_atus.extend(n.contig_descriptor.atus)
+                segment_prefix_sum_bins = np.concatenate(
+                    (
+                        segment_prefix_sum_bins,
+                        n.contig_descriptor.atu_prefix_sum_length_bins +
+                        segment_prefix_sum_bins[-1]
+                    )
+                )
+            else:
+                segment_atus.extend(map(
+                    reverse_atu,
+                    n.contig_descriptor.atus
+                ))
+                segment_prefix_sum_bins = np.concatenate(
+                    (
+                        segment_prefix_sum_bins,
+                        np.flip(n.contig_descriptor.atu_prefix_sum_length_bins) +
+                        segment_prefix_sum_bins[-1]
+                    )
+                )
+
+        ContigTree.traverse_nodes_at_resolution(
+            t_s,
+            resolution,
+            exclude_hidden,
+            traverse_fn
+        )
+        
+        # Find index of ATU where start position falls into
+        
+
         if exclude_hidden_contigs:
             stripe_tree: StripeTree = self.matrix_trees[resolution]
 
@@ -705,6 +758,33 @@ class ChunkedFile(object):
         return mx_as_array
 
     def get_submatrix(
+            self,
+            resolution: np.int64,
+            start_row_incl: np.int64,
+            start_col_incl: np.int64,
+            end_row_excl: np.int64,
+            end_col_excl: np.int64,
+            units: QueryLengthUnit,
+            exclude_hidden_contigs: bool,
+            fetch_cooler_weights: bool
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        row_atus: List[ATUDescriptor] = self.get_atus_for_range(
+            resolution,
+            start_row_incl,
+            end_row_excl,
+            units,
+            exclude_hidden_contigs
+        )
+        col_atus: List[ATUDescriptor] = self.get_atus_for_range(
+            resolution,
+            start_row_incl,
+            end_row_excl,
+            units,
+            exclude_hidden_contigs
+        )
+        pass
+
+    def get_submatrix_old(
             self,
             resolution: np.int64,
             start_row_incl: np.int64,

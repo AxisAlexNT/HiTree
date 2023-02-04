@@ -40,6 +40,7 @@ class ContigTree:
         needs_changing_direction: bool
         needs_updating_scaffold_id_in_subtree: bool
         parent: Optional['ContigTree.Node']
+        direction: ContigDirection
 
         def __init__(
             self,
@@ -53,6 +54,7 @@ class ContigTree:
             needs_changing_direction: bool,
             needs_updating_scaffold_id_in_subtree: bool,
             parent: Optional['ContigTree.Node'],
+            direction: ContigDirection
         ) -> None:
             super().__init__()
             self.contig_descriptor: ContigDescriptor = contig_descriptor
@@ -69,10 +71,12 @@ class ContigTree:
             self.needs_changing_direction: bool = needs_changing_direction
             self.needs_updating_scaffold_id_in_subtree: bool = needs_updating_scaffold_id_in_subtree
             self.parent: Optional['ContigTree.Node'] = parent
+            self.direction = direction
 
         @staticmethod
         def make_new_node_from_descriptor(
-            contig_descriptor: ContigDescriptor
+            contig_descriptor: ContigDescriptor,
+            direction: ContigDirection,
         ) -> 'ContigTree.Node':
             subtree_length_px = dict()
             for resolution, present in contig_descriptor.presence_in_resolution.items():
@@ -92,7 +96,8 @@ class ContigTree:
                     contig_descriptor.contig_length_at_resolution),
                 subtree_length_px=subtree_length_px,
                 needs_changing_direction=False,
-                needs_updating_scaffold_id_in_subtree=False
+                needs_updating_scaffold_id_in_subtree=False,
+                direction=direction
             )
 
         @staticmethod
@@ -109,6 +114,7 @@ class ContigTree:
                 needs_updating_scaffold_id_in_subtree=deepcopy(
                     n.needs_updating_scaffold_id_in_subtree),
                 y_priority=deepcopy(n.y_priority),
+                direction=n.direction
             )
 
         def clone(self) -> 'ContigTree.Node':
@@ -149,13 +155,11 @@ class ContigTree:
                 (new_node.left, new_node.right) = (
                     new_node.right, new_node.left)
                 if new_node.left is not None:
-                    new_node.left.needs_changing_direction = \
-                        new_node.left.needs_changing_direction ^ new_node.needs_changing_direction
+                    new_node.left.needs_changing_direction = not new_node.left.needs_changing_direction
                 if new_node.right is not None:
-                    new_node.right.needs_changing_direction = \
-                        new_node.right.needs_changing_direction ^ new_node.needs_changing_direction
-                new_node.contig_descriptor.direction = ContigDirection(
-                    1 - new_node.contig_descriptor.direction.value)
+                    new_node.right.needs_changing_direction = not new_node.right.needs_changing_direction
+                new_node.direction = ContigDirection(
+                    1 - new_node.direction.value)
                 new_node.needs_changing_direction = False
             if new_node.needs_updating_scaffold_id_in_subtree:
                 if new_node.left is not None:
@@ -614,7 +618,7 @@ class ContigTree:
     #         )
     #         return contig_raw_node.contig_descriptor, left_subsize_count
 
-    def insert_at_position(self, contig_descriptor: ContigDescriptor, index: np.int64):
+    def insert_at_position(self, contig_descriptor: ContigDescriptor, index: np.int64, direction: ContigDirection):
         new_node: ContigTree.Node = ContigTree.Node.make_new_node_from_descriptor(contig_descriptor)
         with self.root_lock.gen_wlock():            
             self.contig_id_to_node_in_tree[contig_descriptor.contig_id] = new_node
@@ -772,13 +776,13 @@ class ContigTree:
         assert (t.right is None) or (t.right.parent ==
                                      t), "Right subtree has no parent link"
         new_t = t.push()
-        ContigTree.traverse_node(new_t.left, f)
+        ContigTree.traverse_nodes_at_resolution(new_t.left, f)
         if not exclude_hidden or new_t.contig_descriptor.presence_in_resolution[resolution] in (
                 ContigHideType.AUTO_SHOWN,
                 ContigHideType.FORCED_SHOWN
         ):
             f(new_t)
-        ContigTree.traverse_node(new_t.right, f)
+        ContigTree.traverse_nodes_at_resolution(new_t.right, f)
 
     def traverse(self, f: Callable[[Node], None]):
         with self.root_lock.gen_rlock():
