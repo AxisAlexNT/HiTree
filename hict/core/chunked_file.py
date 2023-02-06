@@ -2,8 +2,8 @@ import threading
 from enum import Enum
 from io import BytesIO
 from pathlib import Path
-from threading import Lock
 from typing import Set, Union
+from multiprocessing import Pool
 
 import h5py
 import numpy as np
@@ -46,7 +46,8 @@ class ChunkedFile(object):
     def __init__(
             self,
             filepath: str,
-            block_cache_size: int = 64
+            block_cache_size: int = 64,
+            multithreading_pool_size: int = 8,
     ) -> None:
         super().__init__()
         self.filepath: str = filepath
@@ -67,10 +68,11 @@ class ChunkedFile(object):
         # self.block_intersection_cache_lock: Lock = threading.Lock()
         self.scaffold_holder: ScaffoldHolder = ScaffoldHolder()
         self.dtype: Optional[np.dtype] = None
-        self.hdf_file_lock: rwlock.RWLockWrite = rwlock.RWLockWrite()
+        self.hdf_file_lock: rwlock.RWLockWrite = rwlock.RWLockWrite(lock_factory=threading.RLock)
         self.opened_hdf_file: h5py.File = h5py.File(filepath, mode='r')
         self.fasta_processor: Optional[FASTAProcessor] = None
-        self.fasta_file_lock: rwlock.RWLockFair = rwlock.RWLockFair()
+        self.fasta_file_lock: rwlock.RWLockFair = rwlock.RWLockFair(lock_factory=threading.RLock)
+        self.multithreading_pool_size = multithreading_pool_size
 
     def open(self):
         # NOTE: When file is opened in this method, we assert no one writes to it
@@ -364,107 +366,107 @@ class ChunkedFile(object):
 
         return stripes, dense_submatrix_size
 
-    def get_stripes_for_range(
-            self,
-            resolution: np.int64,
-            start_px_incl: np.int64,
-            end_px_excl: np.int64,
-            exclude_hidden_contigs: bool  # = False
-    ) -> Tuple[
-        np.int64,
-        List[StripeDescriptor]
-    ]:
-        if exclude_hidden_contigs:
-            # exposed_contig_segment: ContigTree.ExposedSegment = self.contig_tree.expose_segment(
-            #     resolution,
-            #     start_px_incl,
-            #     end_px_excl,
-            #     QueryLengthUnit.PIXELS
-            # )
-            # first_segment_contig_start_bins = (
-            #     exposed_contig_segment.less.get_sizes(
-            #     )[0][resolution] if exposed_contig_segment.less is not None else 0
-            # )
-            # first_segment_contig_start_px = (
-            #     exposed_contig_segment.less.get_sizes(
-            #     )[2][resolution] if exposed_contig_segment.less is not None else 0
-            # )
-            # contig_segment_end_bins = first_segment_contig_start_bins + (
-            #     exposed_contig_segment.segment.get_sizes()[0][resolution] if (
-            #         exposed_contig_segment.segment is not None
-            #     ) else 0
-            # )
-            # if exposed_contig_segment.segment is None:
-            #     self.contig_tree.commit_exposed_segment(exposed_contig_segment)
-            #     return 0, []
-            # self.contig_tree.commit_exposed_segment(exposed_contig_segment)
+    # def get_stripes_for_range(
+    #         self,
+    #         resolution: np.int64,
+    #         start_px_incl: np.int64,
+    #         end_px_excl: np.int64,
+    #         exclude_hidden_contigs: bool  # = False
+    # ) -> Tuple[
+    #     np.int64,
+    #     List[StripeDescriptor]
+    # ]:
+    #     if exclude_hidden_contigs:
+    #         # exposed_contig_segment: ContigTree.ExposedSegment = self.contig_tree.expose_segment(
+    #         #     resolution,
+    #         #     start_px_incl,
+    #         #     end_px_excl,
+    #         #     QueryLengthUnit.PIXELS
+    #         # )
+    #         # first_segment_contig_start_bins = (
+    #         #     exposed_contig_segment.less.get_sizes(
+    #         #     )[0][resolution] if exposed_contig_segment.less is not None else 0
+    #         # )
+    #         # first_segment_contig_start_px = (
+    #         #     exposed_contig_segment.less.get_sizes(
+    #         #     )[2][resolution] if exposed_contig_segment.less is not None else 0
+    #         # )
+    #         # contig_segment_end_bins = first_segment_contig_start_bins + (
+    #         #     exposed_contig_segment.segment.get_sizes()[0][resolution] if (
+    #         #         exposed_contig_segment.segment is not None
+    #         #     ) else 0
+    #         # )
+    #         # if exposed_contig_segment.segment is None:
+    #         #     self.contig_tree.commit_exposed_segment(exposed_contig_segment)
+    #         #     return 0, []
+    #         # self.contig_tree.commit_exposed_segment(exposed_contig_segment)
 
-            stripe_tree: StripeTree = self.matrix_trees[resolution]
+    #         stripe_tree: StripeTree = self.matrix_trees[resolution]
 
-            # stripes_in_range = stripe_tree.get_stripes_in_segment(
-            #     1 + first_segment_contig_start_bins,
-            #     # first_segment_contig_start_bins,
-            #     contig_segment_end_bins
-            # )
+    #         # stripes_in_range = stripe_tree.get_stripes_in_segment(
+    #         #     1 + first_segment_contig_start_bins,
+    #         #     # first_segment_contig_start_bins,
+    #         #     contig_segment_end_bins
+    #         # )
 
-            stripes_in_range = stripe_tree.get_stripes_in_segment(
-                start_px_incl,
-                end_px_excl,
-                QueryLengthUnit.PIXELS
-            )
+    #         stripes_in_range = stripe_tree.get_stripes_in_segment(
+    #             start_px_incl,
+    #             end_px_excl,
+    #             QueryLengthUnit.PIXELS
+    #         )
 
-            stripes: List[StripeDescriptor] = list(filter(
-                lambda s: (
-                    s.contig_descriptor.presence_in_resolution[resolution] in (
-                        ContigHideType.AUTO_SHOWN,
-                        ContigHideType.FORCED_SHOWN
-                    )
-                ),
-                stripes_in_range.stripes
-            ))
+    #         stripes: List[StripeDescriptor] = list(filter(
+    #             lambda s: (
+    #                 s.contig_descriptor.presence_in_resolution[resolution] in (
+    #                     ContigHideType.AUTO_SHOWN,
+    #                     ContigHideType.FORCED_SHOWN
+    #                 )
+    #             ),
+    #             stripes_in_range.stripes
+    #         ))
 
-            if len(stripes) == 0:
-                return 0, []
+    #         if len(stripes) == 0:
+    #             return 0, []
 
-            # assert start_px_incl >= first_segment_contig_start_px, "Contig starts after its covered query?"
+    #         # assert start_px_incl >= first_segment_contig_start_px, "Contig starts after its covered query?"
 
-            # delta_in_px_between_left_query_border_and_stripe_start: np.int64 = (
-            #     start_px_incl - first_segment_contig_start_px +
-            #     stripes_in_range.first_stripe_start_bins - first_segment_contig_start_bins
-            # )
+    #         # delta_in_px_between_left_query_border_and_stripe_start: np.int64 = (
+    #         #     start_px_incl - first_segment_contig_start_px +
+    #         #     stripes_in_range.first_stripe_start_bins - first_segment_contig_start_bins
+    #         # )
 
-            delta_in_px_between_left_query_border_and_stripe_start: np.int64 = (
-                start_px_incl - stripes_in_range.first_stripe_start_px
-            )
+    #         delta_in_px_between_left_query_border_and_stripe_start: np.int64 = (
+    #             start_px_incl - stripes_in_range.first_stripe_start_px
+    #         )
 
-            query_length: np.int64 = end_px_excl - start_px_incl
-            sum_stripe_lengths = sum([s.stripe_length_bins for s in stripes])
-            assert (
-                sum_stripe_lengths >= query_length
-            ), f"Sum of stripes lengths {sum_stripe_lengths} is less than was queried: {query_length}?"
+    #         query_length: np.int64 = end_px_excl - start_px_incl
+    #         sum_stripe_lengths = sum([s.stripe_length_bins for s in stripes])
+    #         assert (
+    #             sum_stripe_lengths >= query_length
+    #         ), f"Sum of stripes lengths {sum_stripe_lengths} is less than was queried: {query_length}?"
 
-            return delta_in_px_between_left_query_border_and_stripe_start, stripes
-        else:
-            first_segment_contig_start_bins: np.int64 = start_px_incl
-            contig_segment_end_bins: np.int64 = end_px_excl
+    #         return delta_in_px_between_left_query_border_and_stripe_start, stripes
+    #     else:
+    #         first_segment_contig_start_bins: np.int64 = start_px_incl
+    #         contig_segment_end_bins: np.int64 = end_px_excl
 
-            stripe_tree: StripeTree = self.matrix_trees[resolution]
-            # 1+start because (start) bins should not be touched to the left of the query
-            stripes_in_range = stripe_tree.get_stripes_in_segment(
-                1 + first_segment_contig_start_bins,
-                contig_segment_end_bins
-            )
+    #         stripe_tree: StripeTree = self.matrix_trees[resolution]
+    #         # 1+start because (start) bins should not be touched to the left of the query
+    #         stripes_in_range = stripe_tree.get_stripes_in_segment(
+    #             1 + first_segment_contig_start_bins,
+    #             contig_segment_end_bins
+    #         )
 
-            stripes: List[StripeDescriptor] = stripes_in_range.stripes
+    #         stripes: List[StripeDescriptor] = stripes_in_range.stripes
 
-            if len(stripes) == 0:
-                return 0, []
+    #         if len(stripes) == 0:
+    #             return 0, []
 
-            delta_in_px_between_left_query_border_and_stripe_start: np.int64 = (
-                first_segment_contig_start_bins - stripes_in_range.first_stripe_start_bins
-            )
+    #         delta_in_px_between_left_query_border_and_stripe_start: np.int64 = (
+    #             first_segment_contig_start_bins - stripes_in_range.first_stripe_start_bins
+    #         )
 
-            return delta_in_px_between_left_query_border_and_stripe_start, stripes
+    #         return delta_in_px_between_left_query_border_and_stripe_start, stripes
 
     # # @lru_cache(maxsize=BLOCK_CACHE_SIZE, typed=True)
     # # @cachedmethod(cache=lambda s: s.block_cache,
@@ -525,113 +527,142 @@ class ChunkedFile(object):
 
     #     return result_matrix, is_empty
 
-    def flip_dense_2d_fetched_block(
-        self,
-        mx_as_array: np.ndarray,
-        row_block: StripeDescriptor,
-        col_block: StripeDescriptor,
-        needs_transpose: bool
-    ) -> np.ndarray:
-        if row_block.stripe_id == col_block.stripe_id:
-            mx_as_array = np.where(mx_as_array, mx_as_array, mx_as_array.T)
-        if row_block.contig_descriptor.direction == ContigDirection.REVERSED:
-            mx_as_array = np.flip(mx_as_array, axis=0)
-            # mx_as_array = mx_as_array[::-1, :]
-        if col_block.contig_descriptor.direction == ContigDirection.REVERSED:
-            mx_as_array = np.flip(mx_as_array, axis=1)
-            # mx_as_array = mx_as_array[:, ::-1]
-        if needs_transpose:
-            mx_as_array = mx_as_array.T
-        return mx_as_array
+    # def flip_dense_2d_fetched_block(
+    #     self,
+    #     mx_as_array: np.ndarray,
+    #     row_atu: ATUDescriptor,
+    #     col_atu: ATUDescriptor,
+    #     needs_transpose: bool
+    # ) -> np.ndarray:
+    #     if row_atu.stripe_descriptor.stripe_id == col_atu.stripe_descriptor.stripe_id:
+    #         assert (
+    #             row_atu.stripe_descriptor == col_atu.stripe_descriptor
+    #         ), "Fetched stripe descriptors have the same ids, but are not equal??"
+    #         mx_as_array = np.where(mx_as_array, mx_as_array, mx_as_array.T)
+    #     if row_atu.direction == ATUDirection.REVERSED:
+    #         mx_as_array = np.flip(mx_as_array, axis=0)
+    #     if col_atu.direction == ATUDirection.REVERSED:
+    #         mx_as_array = np.flip(mx_as_array, axis=1)
+    #     if needs_transpose:
+    #         mx_as_array = mx_as_array.T
+    #     return mx_as_array
 
-    def sparse_to_dense(self, sparse_mx: Union[coo_array, csr_array, csc_array]) -> np.ndarray:
-        return sparse_mx.todense()
-
-    def flip_sparse_2d_fetched_block(
-        self,
-        mx: csr_array,
-        row_block: StripeDescriptor,
-        col_block: StripeDescriptor
-    ) -> np.ndarray:
-        if row_block.contig_descriptor.direction == ContigDirection.REVERSED:
-            mx = mx[::-1, :]
-        if col_block.contig_descriptor.direction == ContigDirection.REVERSED:
-            mx = mx[:, ::-1]
-        mx_as_array = self.sparse_to_dense(mx)
-        if row_block.stripe_id == col_block.stripe_id:
-            mx_as_array = np.where(mx_as_array, mx_as_array, mx_as_array.T)
-        return mx_as_array
+    # def flip_sparse_2d_fetched_block(
+    #     self,
+    #     mx: csr_array,
+    #     row_atu: ATUDescriptor,
+    #     col_atu: ATUDescriptor
+    # ) -> np.ndarray:
+    #     if row_atu.direction == ATUDirection.REVERSED:
+    #         mx = mx[::-1, :]
+    #     if col_atu.direction == ATUDirection.REVERSED:
+    #         mx = mx[:, ::-1]
+    #     mx_as_array = self.sparse_to_dense(mx)
+    #     if row_atu.stripe_descriptor.stripe_id == col_atu.stripe_descriptor.stripe_id:
+    #         assert (
+    #             row_atu.stripe_descriptor == col_atu.stripe_descriptor
+    #         ), "Fetched stripe descriptors have the same ids, but are not equal??"
+    #         mx_as_array = np.where(mx_as_array, mx_as_array, mx_as_array.T)
+    #     return mx_as_array
 
     # @cachedmethod(cache=lambda s: s.block_intersection_cache,
     #               key=lambda s, f, r, rb, cb: hashkey(
     #                   (r, rb.stripe_id, cb.stripe_id)),
     #               lock=lambda s: s.block_intersection_cache_lock)
 
-    def get_block_intersection_as_dense_matrix(
-            self,
-            f: h5py.File,
-            resolution: np.int64,
-            row_block: StripeDescriptor,
-            col_block: StripeDescriptor
+    def sparse_to_dense(self, sparse_mx: Union[coo_array, csr_array, csc_array]) -> np.ndarray:
+        return sparse_mx.todense()
+
+    def process_flips(
+        self,
+        mx_as_array: np.ndarray,
+        row_atu: ATUDescriptor,
+        col_atu: ATUDescriptor
     ) -> np.ndarray:
+        if row_atu.direction == ATUDirection.REVERSED:
+            mx_as_array = np.flip(mx_as_array, axis=0)
+        if col_atu.direction == ATUDirection.REVERSED:
+            mx_as_array = np.flip(mx_as_array, axis=1)
+        return mx_as_array
+
+    def get_stripe_intersection_for_atus_as_raw_dense_matrix(
+            self,
+            resolution: np.int64,
+            row_atu: ATUDescriptor,
+            col_atu: ATUDescriptor
+    ) -> np.ndarray:
+        row_stripe: StripeDescriptor = row_atu.stripe_descriptor
+        col_stripe: StripeDescriptor = col_atu.stripe_descriptor
         needs_transpose: bool = False
-        if row_block.stripe_id > col_block.stripe_id:
-            row_block, col_block = col_block, row_block
+        if row_stripe.stripe_id > col_stripe.stripe_id:
+            row_stripe, col_stripe = col_stripe, row_stripe
             needs_transpose = True
 
         mx_as_array: np.ndarray
         is_empty: bool
 
-        # mx_as_array, is_empty = self.load_saved_dense_block(f, resolution, row_block, col_block)
+        r: np.int64 = row_stripe.stripe_id
+        c: np.int64 = col_stripe.stripe_id
 
-        r: np.int64 = row_block.stripe_id
-        c: np.int64 = col_block.stripe_id
+        with self.hdf_file_lock.gen_rlock():
+            blocks_dir: h5py.Group = self.opened_hdf_file[f'/resolutions/{resolution}/treap_coo']
+            stripes_count: np.int64 = blocks_dir.attrs['stripes_count']
+            block_index_in_datasets: np.int64 = r * stripes_count + c
 
-        blocks_dir: h5py.Group = f[f'/resolutions/{resolution}/treap_coo']
-        stripes_count: np.int64 = blocks_dir.attrs['stripes_count']
-        block_index_in_datasets: np.int64 = r * stripes_count + c
+            block_lengths: h5py.Dataset = blocks_dir['block_length']
+            block_length = block_lengths[block_index_in_datasets]
+            is_empty: bool = (block_length == 0)
 
-        block_lengths: h5py.Dataset = blocks_dir['block_length']
-        block_length = block_lengths[block_index_in_datasets]
-        is_empty: bool = (block_length <= 0)
-
-        if is_empty:
-            mx_as_array = np.zeros(shape=(
-                row_block.stripe_length_bins, col_block.stripe_length_bins), dtype=self.dtype)
-            if needs_transpose:
-                mx_as_array = mx_as_array.T
-        else:
-            block_offsets: h5py.Dataset = blocks_dir['block_offset']
-            block_offset = block_offsets[block_index_in_datasets]
-            is_dense: bool = (block_offset < 0)
-
-            if is_dense:
-                dense_blocks: h5py.Dataset = blocks_dir['dense_blocks']
-                index_in_dense_blocks: np.int64 = -(block_offset + 1)
-                mx_as_array = dense_blocks[index_in_dense_blocks, 0, :, :]
-                mx_as_array = self.flip_dense_2d_fetched_block(
-                    mx_as_array, row_block, col_block, needs_transpose)
-            else:
-                block_vals: h5py.Dataset = blocks_dir['block_vals']
-                block_finish = block_offset + block_length
-                block_rows: h5py.Dataset = blocks_dir['block_rows']
-                block_cols: h5py.Dataset = blocks_dir['block_cols']
-                mx = coo_array(
-                    (
-                        block_vals[block_offset:block_finish],
-                        (
-                            block_rows[block_offset:block_finish],
-                            block_cols[block_offset:block_finish]
-                        )
+            if is_empty:
+                mx_as_array = np.zeros(
+                    shape=(
+                        row_atu.end_index_in_stripe_excl - row_atu.start_index_in_stripe_incl,
+                        col_atu.end_index_in_stripe_excl - col_atu.start_index_in_stripe_incl
                     ),
-                    shape=(row_block.stripe_length_bins,
-                           col_block.stripe_length_bins)
+                    dtype=self.dtype
                 )
+            else:
+                block_offsets: h5py.Dataset = blocks_dir['block_offset']
+                block_offset = block_offsets[block_index_in_datasets]
+                is_dense: bool = (block_offset < 0)
+
+                if is_dense:
+                    dense_blocks: h5py.Dataset = blocks_dir['dense_blocks']
+                    index_in_dense_blocks: np.int64 = -(block_offset + 1)
+                    mx_as_array = dense_blocks[index_in_dense_blocks, 0, :, :]
+                else:
+                    block_vals: h5py.Dataset = blocks_dir['block_vals']
+                    block_finish = block_offset + block_length
+                    block_rows: h5py.Dataset = blocks_dir['block_rows']
+                    block_cols: h5py.Dataset = blocks_dir['block_cols']
+                    mx = coo_array(
+                        (
+                            block_vals[block_offset:block_finish],
+                            (
+                                block_rows[block_offset:block_finish],
+                                block_cols[block_offset:block_finish]
+                            )
+                        ),
+                        shape=(row_stripe.stripe_length_bins,
+                            col_stripe.stripe_length_bins)
+                    )
+                    mx_as_array = self.sparse_to_dense(mx)
+
+                if row_atu.stripe_descriptor.stripe_id == col_atu.stripe_descriptor.stripe_id:
+                    assert (
+                        row_atu.stripe_descriptor == col_atu.stripe_descriptor
+                    ), "Fetched stripe descriptors have the same ids, but are not equal??"
+                    mx_as_array = np.where(mx_as_array, mx_as_array, mx_as_array.T)
+
                 if needs_transpose:
-                    mx = mx.transpose(copy=False)
-                mx = mx.tocsr()
-                mx_as_array = self.flip_sparse_2d_fetched_block(
-                    mx, row_block, col_block)
+                    mx_as_array = mx_as_array.T
+
+                mx_as_array = mx_as_array[
+                    row_atu.start_index_in_stripe_incl:row_atu.end_index_in_stripe_excl,
+                    col_atu.start_index_in_stripe_incl:col_atu.end_index_in_stripe_excl,
+                ]
+
+                self.process_flips(mx_as_array, row_atu, col_atu)
 
         return mx_as_array
 
@@ -643,8 +674,7 @@ class ChunkedFile(object):
             end_row_excl: np.int64,
             end_col_excl: np.int64,
             units: QueryLengthUnit,
-            exclude_hidden_contigs: bool,
-            fetch_cooler_weights: bool
+            exclude_hidden_contigs: bool
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         row_atus: List[ATUDescriptor] = self.get_atus_for_range(
             resolution,
@@ -655,12 +685,59 @@ class ChunkedFile(object):
         )
         col_atus: List[ATUDescriptor] = self.get_atus_for_range(
             resolution,
-            start_row_incl,
-            end_row_excl,
+            start_col_incl,
+            end_col_excl,
             units,
             exclude_hidden_contigs
         )
-        pass
+        
+        row_matrices: List[np.ndarray] = []
+        row_subweights: List[np.ndarray] = []
+        
+        
+        for row_atu in row_atus:
+            def load_intersection(col_atu: ATUDescriptor) -> np.ndarray:
+                return self.get_atu_intersection(
+                    resolution=resolution,
+                    row_atu=row_atu,
+                    col_atu=col_atu
+                )
+            with Pool(processes=self.multithreading_pool_size) as P:
+                row_subtotals = P.map(load_intersection, col_atus)
+                row_submatrices = (t[0] for t in row_subtotals)
+                row = np.hstack(row_submatrices)
+                row_matrices.append(row)
+                row_subweights.append(row_subtotals[0][1])
+        col_subweights = (t[2] for t in row_subtotals)
+        row_weights = np.hstack(row_subweights)
+        col_weights = np.hstack(col_subweights)
+        result = np.vstack(row_matrices)
+        
+        return result, row_weights, col_weights
+                
+
+        
+
+    def get_atu_intersection(
+        self,
+        resolution: np.int64,
+        row_atu: ATUDescriptor,
+        col_atu: ATUDescriptor,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        atu_intersection_dense: np.ndarray = self.get_stripe_intersection_for_atus_as_raw_dense_matrix(
+            resolution,
+            row_atu,
+            col_atu
+        )
+        
+        row_weights = row_atu.stripe_descriptor.bin_weights
+        col_weights = col_atu.stripe_descriptor.bin_weights
+        if row_atu.direction == ATUDirection.REVERSED:
+            row_weights = np.flip(row_weights)
+        if col_atu.direction == ATUDirection.REVERSED:
+            col_weights = np.flip(col_weights)
+            
+        return atu_intersection_dense, row_weights, col_weights
 
     # def get_submatrix_old(
     #         self,
@@ -812,7 +889,7 @@ class ChunkedFile(object):
     #     end_col_px_excl: np.int64 = constrain_coordinate(
     #         queried_end_col_px_excl, 0, length_px_at_resolution)
 
-    def get_atus_in_range(
+    def get_atus_for_range(
         self,
         resolution: np.int64,
         start_px_incl: np.int64,
@@ -936,8 +1013,12 @@ class ChunkedFile(object):
             new_last_atu = atus[-1].clone()
             new_last_atu.end_index_in_stripe_excl = length_of_last_atu
             atus[-1] = new_last_atu
-            
-            result_atus = atus
+
+            result_atus = ATUDescriptor.reduce(atus)
+
+        assert (
+            (len(result_atus) <= 0) == (start_px_incl >= end_px_excl)
+        ), "No row ATUs were fetched but query is correct??"
 
         # self.contig_tree.commit_exposed_segment(es)
         return result_atus
@@ -1063,207 +1144,207 @@ class ChunkedFile(object):
 
     #         return delta_in_px_between_left_query_border_and_stripe_start, stripes
 
-    def get_coverage_matrix_pixels_internal(
-            self,
-            resolution: np.int64,
-            queried_start_row_px_incl: np.int64,
-            queried_start_col_px_incl: np.int64,
-            queried_end_row_px_excl: np.int64,
-            queried_end_col_px_excl: np.int64,
-            exclude_hidden_contigs: bool,
-            fetch_cooler_weights: bool
-    ) -> Tuple[
-        np.ndarray,
-        np.ndarray,
-        np.ndarray,
-        Tuple[np.int64, np.int64, np.int64, np.int64]
-    ]:
-        if queried_end_row_px_excl <= queried_start_row_px_incl:
-            return (
-                np.zeros((0, queried_end_col_px_excl -
-                         queried_start_col_px_incl)),
-                np.zeros(0),
-                np.zeros(queried_end_col_px_excl - queried_start_col_px_incl),
-                (0, 0, 0, 0)
-            )
-        if queried_end_col_px_excl <= queried_start_col_px_incl:
-            return (
-                np.zeros((queried_end_row_px_excl -
-                         queried_start_row_px_incl, 0)),
-                np.zeros(queried_end_row_px_excl - queried_start_row_px_incl),
-                np.zeros(0),
-                (0, 0, 0, 0)
-            )
-        # assert queried_end_row_px_excl > queried_start_row_px_incl, "Rows: Start >= End??"
-        # assert queried_end_col_px_excl > queried_start_col_px_incl, "Cols: Start >= End??"
+    # def get_coverage_matrix_pixels_internal(
+    #         self,
+    #         resolution: np.int64,
+    #         queried_start_row_px_incl: np.int64,
+    #         queried_start_col_px_incl: np.int64,
+    #         queried_end_row_px_excl: np.int64,
+    #         queried_end_col_px_excl: np.int64,
+    #         exclude_hidden_contigs: bool,
+    #         fetch_cooler_weights: bool
+    # ) -> Tuple[
+    #     np.ndarray,
+    #     np.ndarray,
+    #     np.ndarray,
+    #     Tuple[np.int64, np.int64, np.int64, np.int64]
+    # ]:
+    #     if queried_end_row_px_excl <= queried_start_row_px_incl:
+    #         return (
+    #             np.zeros((0, queried_end_col_px_excl -
+    #                      queried_start_col_px_incl)),
+    #             np.zeros(0),
+    #             np.zeros(queried_end_col_px_excl - queried_start_col_px_incl),
+    #             (0, 0, 0, 0)
+    #         )
+    #     if queried_end_col_px_excl <= queried_start_col_px_incl:
+    #         return (
+    #             np.zeros((queried_end_row_px_excl -
+    #                      queried_start_row_px_incl, 0)),
+    #             np.zeros(queried_end_row_px_excl - queried_start_row_px_incl),
+    #             np.zeros(0),
+    #             (0, 0, 0, 0)
+    #         )
+    #     # assert queried_end_row_px_excl > queried_start_row_px_incl, "Rows: Start >= End??"
+    #     # assert queried_end_col_px_excl > queried_start_col_px_incl, "Cols: Start >= End??"
 
-        length_bins, _, length_px = self.contig_tree.get_sizes()
-        length_px_at_resolution: np.int64
-        if exclude_hidden_contigs:
-            length_px_at_resolution = length_px[resolution]
-        else:
-            length_px_at_resolution = length_bins[resolution]
+    #     length_bins, _, length_px = self.contig_tree.get_sizes()
+    #     length_px_at_resolution: np.int64
+    #     if exclude_hidden_contigs:
+    #         length_px_at_resolution = length_px[resolution]
+    #     else:
+    #         length_px_at_resolution = length_bins[resolution]
 
-        start_row_px_incl: np.int64
-        start_col_px_incl: np.int64
-        end_row_px_excl: np.int64
-        end_col_px_excl: np.int64
+    #     start_row_px_incl: np.int64
+    #     start_col_px_incl: np.int64
+    #     end_row_px_excl: np.int64
+    #     end_col_px_excl: np.int64
 
-        start_row_px_incl: np.int64 = constrain_coordinate(
-            queried_start_row_px_incl, 0, length_px_at_resolution)
-        end_row_px_excl: np.int64 = constrain_coordinate(
-            queried_end_row_px_excl, 0, length_px_at_resolution)
-        start_col_px_incl: np.int64 = constrain_coordinate(
-            queried_start_col_px_incl, 0, length_px_at_resolution)
-        end_col_px_excl: np.int64 = constrain_coordinate(
-            queried_end_col_px_excl, 0, length_px_at_resolution)
+    #     start_row_px_incl: np.int64 = constrain_coordinate(
+    #         queried_start_row_px_incl, 0, length_px_at_resolution)
+    #     end_row_px_excl: np.int64 = constrain_coordinate(
+    #         queried_end_row_px_excl, 0, length_px_at_resolution)
+    #     start_col_px_incl: np.int64 = constrain_coordinate(
+    #         queried_start_col_px_incl, 0, length_px_at_resolution)
+    #     end_col_px_excl: np.int64 = constrain_coordinate(
+    #         queried_end_col_px_excl, 0, length_px_at_resolution)
 
-        row_delta_in_px_between_left_query_border_and_stripe_start: np.int64
-        row_stripes: List[StripeDescriptor]
-        row_delta_in_px_between_left_query_border_and_stripe_start, row_atus = self.get_atus_for_range(
-            resolution,
-            start_row_px_incl,
-            end_row_px_excl,
-            exclude_hidden_contigs=exclude_hidden_contigs
-        )
-        row_delta_in_px_between_left_query_border_and_stripe_start, row_stripes = self.get_stripes_for_range(
-            resolution,
-            start_row_px_incl,
-            end_row_px_excl,
-            exclude_hidden_contigs=exclude_hidden_contigs
-        )
+    #     row_delta_in_px_between_left_query_border_and_stripe_start: np.int64
+    #     row_stripes: List[StripeDescriptor]
+    #     row_delta_in_px_between_left_query_border_and_stripe_start, row_atus = self.get_atus_for_range(
+    #         resolution,
+    #         start_row_px_incl,
+    #         end_row_px_excl,
+    #         exclude_hidden_contigs=exclude_hidden_contigs
+    #     )
+    #     row_delta_in_px_between_left_query_border_and_stripe_start, row_stripes = self.get_stripes_for_range(
+    #         resolution,
+    #         start_row_px_incl,
+    #         end_row_px_excl,
+    #         exclude_hidden_contigs=exclude_hidden_contigs
+    #     )
 
-        col_delta_in_px_between_left_query_border_and_stripe_start: np.int64
-        col_stripes: List[StripeDescriptor]
-        col_delta_in_px_between_left_query_border_and_stripe_start, col_stripes = self.get_stripes_for_range(
-            resolution,
-            start_col_px_incl,
-            end_col_px_excl,
-            exclude_hidden_contigs=exclude_hidden_contigs
-        )
+    #     col_delta_in_px_between_left_query_border_and_stripe_start: np.int64
+    #     col_stripes: List[StripeDescriptor]
+    #     col_delta_in_px_between_left_query_border_and_stripe_start, col_stripes = self.get_stripes_for_range(
+    #         resolution,
+    #         start_col_px_incl,
+    #         end_col_px_excl,
+    #         exclude_hidden_contigs=exclude_hidden_contigs
+    #     )
 
-        row_stripe_lengths: np.ndarray = np.array(
-            [row_stripe.stripe_length_bins for row_stripe in row_stripes],
-            dtype=np.int64
-        )
-        col_stripe_lengths: np.ndarray = np.array(
-            [col_stripe.stripe_length_bins for col_stripe in col_stripes],
-            dtype=np.int64
-        )
+    #     row_stripe_lengths: np.ndarray = np.array(
+    #         [row_stripe.stripe_length_bins for row_stripe in row_stripes],
+    #         dtype=np.int64
+    #     )
+    #     col_stripe_lengths: np.ndarray = np.array(
+    #         [col_stripe.stripe_length_bins for col_stripe in col_stripes],
+    #         dtype=np.int64
+    #     )
 
-        row_stripe_starts: np.ndarray = np.hstack(
-            (np.zeros(shape=(1,), dtype=np.int64),
-             np.cumsum(row_stripe_lengths))
-        )
-        col_stripe_starts: np.ndarray = np.hstack(
-            (np.zeros(shape=(1,), dtype=np.int64),
-             np.cumsum(col_stripe_lengths))
-        )
+    #     row_stripe_starts: np.ndarray = np.hstack(
+    #         (np.zeros(shape=(1,), dtype=np.int64),
+    #          np.cumsum(row_stripe_lengths))
+    #     )
+    #     col_stripe_starts: np.ndarray = np.hstack(
+    #         (np.zeros(shape=(1,), dtype=np.int64),
+    #          np.cumsum(col_stripe_lengths))
+    #     )
 
-        row_total_stripe_length: np.int64 = row_stripe_starts[-1]
-        col_total_stripe_length: np.int64 = col_stripe_starts[-1]
+    #     row_total_stripe_length: np.int64 = row_stripe_starts[-1]
+    #     col_total_stripe_length: np.int64 = col_stripe_starts[-1]
 
-        query_length_rows: np.int64 = end_row_px_excl - start_row_px_incl
-        query_length_cols: np.int64 = end_col_px_excl - start_col_px_incl
+    #     query_length_rows: np.int64 = end_row_px_excl - start_row_px_incl
+    #     query_length_cols: np.int64 = end_col_px_excl - start_col_px_incl
 
-        # TODO: Assertions should consider that query might be larger than the matrix itself
-        assert (
-            query_length_rows <= row_total_stripe_length
-        ), f"Total row stripe length {row_total_stripe_length} is less than query it should cover: {query_length_rows}??"
-        assert (
-            query_length_cols <= col_total_stripe_length
-        ), f"Total col stripe length {col_total_stripe_length} is less than query it should cover: {query_length_cols}??"
+    #     # TODO: Assertions should consider that query might be larger than the matrix itself
+    #     assert (
+    #         query_length_rows <= row_total_stripe_length
+    #     ), f"Total row stripe length {row_total_stripe_length} is less than query it should cover: {query_length_rows}??"
+    #     assert (
+    #         query_length_cols <= col_total_stripe_length
+    #     ), f"Total col stripe length {col_total_stripe_length} is less than query it should cover: {query_length_cols}??"
 
-        dense_coverage_matrix: np.ndarray = np.zeros(
-            shape=(row_total_stripe_length, col_total_stripe_length),
-            dtype=self.dtype
-        )
+    #     dense_coverage_matrix: np.ndarray = np.zeros(
+    #         shape=(row_total_stripe_length, col_total_stripe_length),
+    #         dtype=self.dtype
+    #     )
 
-        with self.hdf_file_lock.gen_rlock():
-            f = self.opened_hdf_file
-            # print(f"Getting coverage matrix for query ({start_row_px_incl}, {start_col_px_incl})..({end_row_px_excl}, {end_col_px_excl}) requires intersecting {len(row_stripes)}x{len(col_stripes)} stripes", file=open("./internal-profiler/req.txt", "a"))
-            for row_stripe_index in range(0, len(row_stripes)):
-                row_stripe: StripeDescriptor = row_stripes[row_stripe_index]
-                row_stripe_start_in_dense: np.int64 = row_stripe_starts[row_stripe_index]
-                row_stripe_end_in_dense: np.int64 = row_stripe_starts[1 +
-                                                                      row_stripe_index]
-                for col_stripe_index in range(0, len(col_stripes)):
-                    col_stripe: StripeDescriptor = col_stripes[col_stripe_index]
-                    col_stripe_start_in_dense: np.int64 = col_stripe_starts[col_stripe_index]
-                    col_stripe_end_in_dense: np.int64 = col_stripe_starts[1 +
-                                                                          col_stripe_index]
-                    dense_intersection: np.ndarray = self.get_block_intersection_as_dense_matrix(
-                        f,
-                        resolution,
-                        row_stripe,
-                        col_stripe
-                    )
+    #     with self.hdf_file_lock.gen_rlock():
+    #         f = self.opened_hdf_file
+    #         # print(f"Getting coverage matrix for query ({start_row_px_incl}, {start_col_px_incl})..({end_row_px_excl}, {end_col_px_excl}) requires intersecting {len(row_stripes)}x{len(col_stripes)} stripes", file=open("./internal-profiler/req.txt", "a"))
+    #         for row_stripe_index in range(0, len(row_stripes)):
+    #             row_stripe: StripeDescriptor = row_stripes[row_stripe_index]
+    #             row_stripe_start_in_dense: np.int64 = row_stripe_starts[row_stripe_index]
+    #             row_stripe_end_in_dense: np.int64 = row_stripe_starts[1 +
+    #                                                                   row_stripe_index]
+    #             for col_stripe_index in range(0, len(col_stripes)):
+    #                 col_stripe: StripeDescriptor = col_stripes[col_stripe_index]
+    #                 col_stripe_start_in_dense: np.int64 = col_stripe_starts[col_stripe_index]
+    #                 col_stripe_end_in_dense: np.int64 = col_stripe_starts[1 +
+    #                                                                       col_stripe_index]
+    #                 dense_intersection: np.ndarray = self.get_block_intersection_as_dense_matrix(
+    #                     f,
+    #                     resolution,
+    #                     row_stripe,
+    #                     col_stripe
+    #                 )
 
-                    assert (
-                        dense_intersection.shape ==
-                        (
-                            row_stripe_end_in_dense - row_stripe_start_in_dense,
-                            col_stripe_end_in_dense - col_stripe_start_in_dense
-                        )
-                    ), "Wrong shape of dense block intersection matrix"
-                    dense_coverage_matrix[
-                        row_stripe_start_in_dense:row_stripe_end_in_dense,
-                        col_stripe_start_in_dense:col_stripe_end_in_dense
-                    ] = dense_intersection
+    #                 assert (
+    #                     dense_intersection.shape ==
+    #                     (
+    #                         row_stripe_end_in_dense - row_stripe_start_in_dense,
+    #                         col_stripe_end_in_dense - col_stripe_start_in_dense
+    #                     )
+    #                 ), "Wrong shape of dense block intersection matrix"
+    #                 dense_coverage_matrix[
+    #                     row_stripe_start_in_dense:row_stripe_end_in_dense,
+    #                     col_stripe_start_in_dense:col_stripe_end_in_dense
+    #                 ] = dense_intersection
 
-        query_start_row_in_coverage_matrix_incl: np.int64 = row_delta_in_px_between_left_query_border_and_stripe_start
-        query_start_col_in_coverage_matrix_incl: np.int64 = col_delta_in_px_between_left_query_border_and_stripe_start
+    #     query_start_row_in_coverage_matrix_incl: np.int64 = row_delta_in_px_between_left_query_border_and_stripe_start
+    #     query_start_col_in_coverage_matrix_incl: np.int64 = col_delta_in_px_between_left_query_border_and_stripe_start
 
-        query_end_row_in_coverage_matrix_excl: np.int64 = query_start_row_in_coverage_matrix_incl + query_length_rows
-        query_end_col_in_coverage_matrix_excl: np.int64 = query_start_col_in_coverage_matrix_incl + query_length_cols
+    #     query_end_row_in_coverage_matrix_excl: np.int64 = query_start_row_in_coverage_matrix_incl + query_length_rows
+    #     query_end_col_in_coverage_matrix_excl: np.int64 = query_start_col_in_coverage_matrix_incl + query_length_cols
 
-        # TODO: Assertions should consider that query might be larger than the matrix itself
-        # assert (
-        #         dense_coverage_matrix.shape[0] >= query_end_row_in_coverage_matrix_excl
-        # ), "Coverage matrix does not cover the whole query by row count??"
-        #
-        # assert (
-        #         dense_coverage_matrix.shape[1] >= query_end_col_in_coverage_matrix_excl
-        # ), "Coverage matrix does not cover the whole query??"
+    #     # TODO: Assertions should consider that query might be larger than the matrix itself
+    #     # assert (
+    #     #         dense_coverage_matrix.shape[0] >= query_end_row_in_coverage_matrix_excl
+    #     # ), "Coverage matrix does not cover the whole query by row count??"
+    #     #
+    #     # assert (
+    #     #         dense_coverage_matrix.shape[1] >= query_end_col_in_coverage_matrix_excl
+    #     # ), "Coverage matrix does not cover the whole query??"
 
-        coverage_row_weights: np.ndarray
-        coverage_col_weights: np.ndarray
-        if fetch_cooler_weights:
-            coverage_row_weights = np.ones(0, dtype=np.float64)
-            coverage_col_weights = np.ones(0, dtype=np.float64)
-            for row_stripe in row_stripes:
-                row_weights = (
-                    row_stripe.bin_weights
-                    if (
-                        row_stripe.contig_descriptor.direction == ContigDirection.REVERSED
-                    ) else np.flip(row_stripe.bin_weights)
-                )
-                coverage_row_weights = np.hstack(
-                    (coverage_row_weights, row_weights))
-            for col_stripe in col_stripes:
-                col_weights = (
-                    col_stripe.bin_weights
-                    if (
-                        col_stripe.contig_descriptor.direction == ContigDirection.REVERSED
-                    ) else np.flip(col_stripe.bin_weights)
-                )
-                coverage_col_weights = np.hstack(
-                    (coverage_col_weights, col_weights))
-        else:
-            coverage_row_weights = np.ones(query_length_rows, dtype=np.float64)
-            coverage_col_weights = np.ones(query_length_cols, dtype=np.float64)
+    #     coverage_row_weights: np.ndarray
+    #     coverage_col_weights: np.ndarray
+    #     if fetch_cooler_weights:
+    #         coverage_row_weights = np.ones(0, dtype=np.float64)
+    #         coverage_col_weights = np.ones(0, dtype=np.float64)
+    #         for row_stripe in row_stripes:
+    #             row_weights = (
+    #                 row_stripe.bin_weights
+    #                 if (
+    #                     row_stripe.contig_descriptor.direction == ContigDirection.REVERSED
+    #                 ) else np.flip(row_stripe.bin_weights)
+    #             )
+    #             coverage_row_weights = np.hstack(
+    #                 (coverage_row_weights, row_weights))
+    #         for col_stripe in col_stripes:
+    #             col_weights = (
+    #                 col_stripe.bin_weights
+    #                 if (
+    #                     col_stripe.contig_descriptor.direction == ContigDirection.REVERSED
+    #                 ) else np.flip(col_stripe.bin_weights)
+    #             )
+    #             coverage_col_weights = np.hstack(
+    #                 (coverage_col_weights, col_weights))
+    #     else:
+    #         coverage_row_weights = np.ones(query_length_rows, dtype=np.float64)
+    #         coverage_col_weights = np.ones(query_length_cols, dtype=np.float64)
 
-        return (
-            dense_coverage_matrix,
-            coverage_row_weights,
-            coverage_col_weights,
-            (
-                query_start_row_in_coverage_matrix_incl,
-                query_start_col_in_coverage_matrix_incl,
-                query_end_row_in_coverage_matrix_excl,
-                query_end_col_in_coverage_matrix_excl
-            )
-        )
+    #     return (
+    #         dense_coverage_matrix,
+    #         coverage_row_weights,
+    #         coverage_col_weights,
+    #         (
+    #             query_start_row_in_coverage_matrix_incl,
+    #             query_start_col_in_coverage_matrix_incl,
+    #             query_end_row_in_coverage_matrix_excl,
+    #             query_end_col_in_coverage_matrix_excl
+    #         )
+    #     )
 
     def reverse_selection_range(self, queried_start_contig_id: np.int64, queried_end_contig_id: np.int64) -> None:
         assert self.state == ChunkedFile.FileState.OPENED, "Operation requires file to be opened"
