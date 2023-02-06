@@ -662,155 +662,155 @@ class ChunkedFile(object):
         )
         pass
 
-    def get_submatrix_old(
-            self,
-            resolution: np.int64,
-            start_row_incl: np.int64,
-            start_col_incl: np.int64,
-            end_row_excl: np.int64,
-            end_col_excl: np.int64,
-            units: QueryLengthUnit,
-            exclude_hidden_contigs: bool,
-            fetch_cooler_weights: bool
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        (
-            dense_coverage_matrix, coverage_row_weights, coverage_col_weights,
-            (
-                query_start_row_in_coverage_matrix,
-                query_start_col_in_coverage_matrix,
-                query_end_row_in_coverage_matrix,
-                query_end_col_in_coverage_matrix
-            )
-        ) = self.get_coverage_matrix(
-            resolution,
-            start_row_incl,
-            start_col_incl,
-            end_row_excl,
-            end_col_excl,
-            units,
-            exclude_hidden_contigs,
-            fetch_cooler_weights
-        )
-        submatrix: np.ndarray = dense_coverage_matrix[
-            query_start_row_in_coverage_matrix:query_end_row_in_coverage_matrix,
-            query_start_col_in_coverage_matrix:query_end_col_in_coverage_matrix
-        ]
-        row_weights: np.ndarray = coverage_row_weights[
-            query_start_row_in_coverage_matrix:query_end_row_in_coverage_matrix]
-        col_weights: np.ndarray = coverage_col_weights[
-            query_start_col_in_coverage_matrix:query_end_col_in_coverage_matrix]
+    # def get_submatrix_old(
+    #         self,
+    #         resolution: np.int64,
+    #         start_row_incl: np.int64,
+    #         start_col_incl: np.int64,
+    #         end_row_excl: np.int64,
+    #         end_col_excl: np.int64,
+    #         units: QueryLengthUnit,
+    #         exclude_hidden_contigs: bool,
+    #         fetch_cooler_weights: bool
+    # ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    #     (
+    #         dense_coverage_matrix, coverage_row_weights, coverage_col_weights,
+    #         (
+    #             query_start_row_in_coverage_matrix,
+    #             query_start_col_in_coverage_matrix,
+    #             query_end_row_in_coverage_matrix,
+    #             query_end_col_in_coverage_matrix
+    #         )
+    #     ) = self.get_coverage_matrix(
+    #         resolution,
+    #         start_row_incl,
+    #         start_col_incl,
+    #         end_row_excl,
+    #         end_col_excl,
+    #         units,
+    #         exclude_hidden_contigs,
+    #         fetch_cooler_weights
+    #     )
+    #     submatrix: np.ndarray = dense_coverage_matrix[
+    #         query_start_row_in_coverage_matrix:query_end_row_in_coverage_matrix,
+    #         query_start_col_in_coverage_matrix:query_end_col_in_coverage_matrix
+    #     ]
+    #     row_weights: np.ndarray = coverage_row_weights[
+    #         query_start_row_in_coverage_matrix:query_end_row_in_coverage_matrix]
+    #     col_weights: np.ndarray = coverage_col_weights[
+    #         query_start_col_in_coverage_matrix:query_end_col_in_coverage_matrix]
 
-        return submatrix, row_weights, col_weights
+    #     return submatrix, row_weights, col_weights
 
-    def get_coverage_matrix(
-            self,
-            resolution: np.int64,
-            start_row_incl: np.int64,
-            start_col_incl: np.int64,
-            end_row_excl: np.int64,
-            end_col_excl: np.int64,
-            units: QueryLengthUnit,
-            exclude_hidden_contigs: bool,
-            fetch_cooler_weights: bool
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Tuple[np.int64, np.int64, np.int64, np.int64]]:
-        if units == QueryLengthUnit.BASE_PAIRS:
-            assert (
-                resolution == 0 or resolution == 1
-            ), "Base pairs have resolution 1:1 and are stored as 1:0"
-            es_row: ContigTree.ExposedSegment = self.contig_tree.expose_segment_by_length(
-                start_row_incl, end_row_excl - 1, 0)
-            start_row_px_incl = es_row.less.get_sizes(
-            )[2][resolution] if es_row.less is not None else 0  # + 1
-            end_row_px_excl = start_row_px_incl + \
-                es_row.segment.get_sizes(
-                )[2][resolution] if es_row.segment is not None else 0
-            self.contig_tree.commit_exposed_segment(es_row)
-            es_col: ContigTree.ExposedSegment = self.contig_tree.expose_segment_by_length(
-                start_col_incl, end_col_excl - 1, 0)
-            start_col_px_incl = es_col.less.get_sizes(
-            )[2][resolution] if es_col.less is not None else 0  # + 1
-            end_col_px_excl = start_col_px_incl + \
-                es_col.segment.get_sizes(
-                )[2][resolution] if es_col.segment is not None else 0
-            self.contig_tree.commit_exposed_segment(es_col)
-            return self.get_coverage_matrix_pixels_internal(
-                resolution,
-                start_row_px_incl,
-                start_col_px_incl,
-                end_row_px_excl,
-                end_col_px_excl,
-                exclude_hidden_contigs,
-                fetch_cooler_weights
-            )
-        elif units == QueryLengthUnit.BINS:
-            assert (
-                resolution != 0 and resolution != 1
-            ), "Bins query should use actual resolution, not reserved 1:0 or 1:1"
-            return self.get_coverage_matrix_pixels_internal(resolution, start_row_incl, start_col_incl, end_row_excl,
-                                                            end_col_excl, exclude_hidden_contigs, fetch_cooler_weights)
-        elif units == QueryLengthUnit.PIXELS:
-            assert (
-                resolution != 0 and resolution != 1
-            ), "Pixels query should use actual resolution, not reserved 1:0 or 1:1"
-            return self.get_coverage_matrix_pixels_internal(resolution, start_row_incl, start_col_incl, end_row_excl,
-                                                            end_col_excl, exclude_hidden_contigs, fetch_cooler_weights)
-        else:
-            raise Exception("Unknown length unit")
+    # def get_coverage_matrix(
+    #         self,
+    #         resolution: np.int64,
+    #         start_row_incl: np.int64,
+    #         start_col_incl: np.int64,
+    #         end_row_excl: np.int64,
+    #         end_col_excl: np.int64,
+    #         units: QueryLengthUnit,
+    #         exclude_hidden_contigs: bool,
+    #         fetch_cooler_weights: bool
+    # ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Tuple[np.int64, np.int64, np.int64, np.int64]]:
+    #     if units == QueryLengthUnit.BASE_PAIRS:
+    #         assert (
+    #             resolution == 0 or resolution == 1
+    #         ), "Base pairs have resolution 1:1 and are stored as 1:0"
+    #         es_row: ContigTree.ExposedSegment = self.contig_tree.expose_segment_by_length(
+    #             start_row_incl, end_row_excl - 1, 0)
+    #         start_row_px_incl = es_row.less.get_sizes(
+    #         )[2][resolution] if es_row.less is not None else 0  # + 1
+    #         end_row_px_excl = start_row_px_incl + \
+    #             es_row.segment.get_sizes(
+    #             )[2][resolution] if es_row.segment is not None else 0
+    #         self.contig_tree.commit_exposed_segment(es_row)
+    #         es_col: ContigTree.ExposedSegment = self.contig_tree.expose_segment_by_length(
+    #             start_col_incl, end_col_excl - 1, 0)
+    #         start_col_px_incl = es_col.less.get_sizes(
+    #         )[2][resolution] if es_col.less is not None else 0  # + 1
+    #         end_col_px_excl = start_col_px_incl + \
+    #             es_col.segment.get_sizes(
+    #             )[2][resolution] if es_col.segment is not None else 0
+    #         self.contig_tree.commit_exposed_segment(es_col)
+    #         return self.get_coverage_matrix_pixels_internal(
+    #             resolution,
+    #             start_row_px_incl,
+    #             start_col_px_incl,
+    #             end_row_px_excl,
+    #             end_col_px_excl,
+    #             exclude_hidden_contigs,
+    #             fetch_cooler_weights
+    #         )
+    #     elif units == QueryLengthUnit.BINS:
+    #         assert (
+    #             resolution != 0 and resolution != 1
+    #         ), "Bins query should use actual resolution, not reserved 1:0 or 1:1"
+    #         return self.get_coverage_matrix_pixels_internal(resolution, start_row_incl, start_col_incl, end_row_excl,
+    #                                                         end_col_excl, exclude_hidden_contigs, fetch_cooler_weights)
+    #     elif units == QueryLengthUnit.PIXELS:
+    #         assert (
+    #             resolution != 0 and resolution != 1
+    #         ), "Pixels query should use actual resolution, not reserved 1:0 or 1:1"
+    #         return self.get_coverage_matrix_pixels_internal(resolution, start_row_incl, start_col_incl, end_row_excl,
+    #                                                         end_col_excl, exclude_hidden_contigs, fetch_cooler_weights)
+    #     else:
+    #         raise Exception("Unknown length unit")
 
-    def get_coverage_matrix_pixels_using_atus_internal(
-            self,
-            resolution: np.int64,
-            queried_start_row_px_incl: np.int64,
-            queried_start_col_px_incl: np.int64,
-            queried_end_row_px_excl: np.int64,
-            queried_end_col_px_excl: np.int64,
-            exclude_hidden_contigs: bool,
-            fetch_cooler_weights: bool
-    ) -> Tuple[
-        np.ndarray,
-        np.ndarray,
-        np.ndarray,
-        Tuple[np.int64, np.int64, np.int64, np.int64]
-    ]:
-        if queried_end_row_px_excl <= queried_start_row_px_incl:
-            return (
-                np.zeros((0, queried_end_col_px_excl -
-                         queried_start_col_px_incl)),
-                np.zeros(0),
-                np.zeros(queried_end_col_px_excl - queried_start_col_px_incl),
-                (0, 0, 0, 0)
-            )
-        if queried_end_col_px_excl <= queried_start_col_px_incl:
-            return (
-                np.zeros((queried_end_row_px_excl -
-                         queried_start_row_px_incl, 0)),
-                np.zeros(queried_end_row_px_excl - queried_start_row_px_incl),
-                np.zeros(0),
-                (0, 0, 0, 0)
-            )
-        # assert queried_end_row_px_excl > queried_start_row_px_incl, "Rows: Start >= End??"
-        # assert queried_end_col_px_excl > queried_start_col_px_incl, "Cols: Start >= End??"
+    # def get_coverage_matrix_pixels_using_atus_internal(
+    #         self,
+    #         resolution: np.int64,
+    #         queried_start_row_px_incl: np.int64,
+    #         queried_start_col_px_incl: np.int64,
+    #         queried_end_row_px_excl: np.int64,
+    #         queried_end_col_px_excl: np.int64,
+    #         exclude_hidden_contigs: bool,
+    #         fetch_cooler_weights: bool
+    # ) -> Tuple[
+    #     np.ndarray,
+    #     np.ndarray,
+    #     np.ndarray,
+    #     Tuple[np.int64, np.int64, np.int64, np.int64]
+    # ]:
+    #     if queried_end_row_px_excl <= queried_start_row_px_incl:
+    #         return (
+    #             np.zeros((0, queried_end_col_px_excl -
+    #                      queried_start_col_px_incl)),
+    #             np.zeros(0),
+    #             np.zeros(queried_end_col_px_excl - queried_start_col_px_incl),
+    #             (0, 0, 0, 0)
+    #         )
+    #     if queried_end_col_px_excl <= queried_start_col_px_incl:
+    #         return (
+    #             np.zeros((queried_end_row_px_excl -
+    #                      queried_start_row_px_incl, 0)),
+    #             np.zeros(queried_end_row_px_excl - queried_start_row_px_incl),
+    #             np.zeros(0),
+    #             (0, 0, 0, 0)
+    #         )
+    #     # assert queried_end_row_px_excl > queried_start_row_px_incl, "Rows: Start >= End??"
+    #     # assert queried_end_col_px_excl > queried_start_col_px_incl, "Cols: Start >= End??"
 
-        length_bins, _, length_px = self.contig_tree.get_sizes()
-        length_px_at_resolution: np.int64
-        if exclude_hidden_contigs:
-            length_px_at_resolution = length_px[resolution]
-        else:
-            length_px_at_resolution = length_bins[resolution]
+    #     length_bins, _, length_px = self.contig_tree.get_sizes()
+    #     length_px_at_resolution: np.int64
+    #     if exclude_hidden_contigs:
+    #         length_px_at_resolution = length_px[resolution]
+    #     else:
+    #         length_px_at_resolution = length_bins[resolution]
 
-        start_row_px_incl: np.int64
-        start_col_px_incl: np.int64
-        end_row_px_excl: np.int64
-        end_col_px_excl: np.int64
+    #     start_row_px_incl: np.int64
+    #     start_col_px_incl: np.int64
+    #     end_row_px_excl: np.int64
+    #     end_col_px_excl: np.int64
 
-        start_row_px_incl: np.int64 = constrain_coordinate(
-            queried_start_row_px_incl, 0, length_px_at_resolution)
-        end_row_px_excl: np.int64 = constrain_coordinate(
-            queried_end_row_px_excl, 0, length_px_at_resolution)
-        start_col_px_incl: np.int64 = constrain_coordinate(
-            queried_start_col_px_incl, 0, length_px_at_resolution)
-        end_col_px_excl: np.int64 = constrain_coordinate(
-            queried_end_col_px_excl, 0, length_px_at_resolution)
+    #     start_row_px_incl: np.int64 = constrain_coordinate(
+    #         queried_start_row_px_incl, 0, length_px_at_resolution)
+    #     end_row_px_excl: np.int64 = constrain_coordinate(
+    #         queried_end_row_px_excl, 0, length_px_at_resolution)
+    #     start_col_px_incl: np.int64 = constrain_coordinate(
+    #         queried_start_col_px_incl, 0, length_px_at_resolution)
+    #     end_col_px_excl: np.int64 = constrain_coordinate(
+    #         queried_end_col_px_excl, 0, length_px_at_resolution)
 
     def get_atus_in_range(
         self,
@@ -852,7 +852,11 @@ class ChunkedFile(object):
             atus: List[ATUDescriptor] = []
 
             def traverse_fn(node: ContigTree.Node) -> None:
-                atus.extend(node.contig_descriptor.atus)
+                contig_atus = node.contig_descriptor.atus
+                contig_direction = node.true_direction()
+                if contig_direction == ContigDirection.REVERSED:
+                    contig_atus = reversed(contig_atus)
+                atus.extend(contig_atus)
 
             # TODO: maybe no need in push
             ContigTree.traverse_nodes_at_resolution(
@@ -892,152 +896,172 @@ class ChunkedFile(object):
                 ] if index_of_atu_containing_start > 0 else np.int64(0)
             )
 
-            old_first_atu: ATUDescriptor = atus[index_of_atu_containing_start]
-            new_first_atu: ATUDescriptor = ATUDescriptor.make_atu_descriptor(
-                old_first_atu.stripe_descriptor,
-                old_first_atu.start_index_in_stripe_incl +
-                (delta_px_between_segment_first_contig_start_and_query_start -
-                 length_of_atus_before_one_containing_start_px),
-                old_first_atu.end_index_in_stripe_excl,
-                old_first_atu.direction
+            new_first_atu: ATUDescriptor = atus[index_of_atu_containing_start].clone(
+            )
+            new_first_atu.start_index_in_stripe_incl += (
+                delta_px_between_segment_first_contig_start_and_query_start -
+                length_of_atus_before_one_containing_start_px
             )
 
             atus[index_of_atu_containing_start] = new_first_atu
             result_atus = atus[index_of_atu_containing_start:]
 
-            
-            delta_between_right_px_and_exposed_segment: np.int64 = end_px_excl - (less_size + segment_size)
+            delta_between_right_px_and_exposed_segment: np.int64 = end_px_excl - \
+                (less_size + segment_size)
             # TODO: maybe no push
             last_contig_node = es.segment.rightmost()
-            last_contig_length: np.int64 = last_contig_node.contig_descriptor.contig_length_at_resolution[resolution]
-            delta_from_contig_start_to_end_excl: np.int64 = last_contig_length - delta_between_right_px_and_exposed_segment
+            last_contig_atus_prefix_sum = last_contig_node.contig_descriptor.atu_prefix_sum_length_bins
+            if last_contig_node.direction == ContigDirection.REVERSED:
+                last_contig_atus_prefix_sum = reversed(
+                    last_contig_atus_prefix_sum)
+            last_contig_length: np.int64 = last_contig_node.contig_descriptor.contig_length_at_resolution[
+                resolution]
+            delta_from_contig_start_to_end_excl: np.int64 = last_contig_length - \
+                delta_between_right_px_and_exposed_segment
+
+            index_of_atu_where_end_px_incl_is_located: np.int64 = np.searchsorted(
+                last_contig_atus_prefix_sum,
+                delta_from_contig_start_to_end_excl-1,
+                side='right'
+            )
+
+            last_contig_atu_count = len(last_contig_atus_prefix_sum)
+            atus = atus[:-(last_contig_atu_count -
+                           index_of_atu_where_end_px_incl_is_located-1)]
+
+            length_before_that_atu = last_contig_atus_prefix_sum[max(
+                0, index_of_atu_where_end_px_incl_is_located-1)]
+            length_of_last_atu = delta_from_contig_start_to_end_excl - length_before_that_atu
+
+            new_last_atu = atus[-1].clone()
+            new_last_atu.end_index_in_stripe_excl = length_of_last_atu
+            atus[-1] = new_last_atu
             
-            # atu_index_where_
-            
+            result_atus = atus
 
         # self.contig_tree.commit_exposed_segment(es)
         return result_atus
 
-    def get_atus_for_pixel_range(
-            self,
-            resolution: np.int64,
-            start_px_incl: np.int64,
-            end_px_excl: np.int64,
-            exclude_hidden: bool
-    ) -> Tuple[
-        np.int64,
-        List[StripeDescriptor]
-    ]:
-        (t_l, t_s, t_gr) = self.contig_tree.expose_segment(
-            resolution=resolution,
-            start=start_px_incl,
-            end=(end_px_excl-1),
-            units=(QueryLengthUnit.PIXELS if exclude_hidden else QueryLengthUnit.BINS)
-        )
+    # def get_atus_for_pixel_range(
+    #         self,
+    #         resolution: np.int64,
+    #         start_px_incl: np.int64,
+    #         end_px_excl: np.int64,
+    #         exclude_hidden: bool
+    # ) -> Tuple[
+    #     np.int64,
+    #     List[StripeDescriptor]
+    # ]:
+    #     (t_l, t_s, t_gr) = self.contig_tree.expose_segment(
+    #         resolution=resolution,
+    #         start=start_px_incl,
+    #         end=(end_px_excl-1),
+    #         units=(QueryLengthUnit.PIXELS if exclude_hidden else QueryLengthUnit.BINS)
+    #     )
 
-        left_bins, left_count, left_px = t_l.get_sizes()
+    #     left_bins, left_count, left_px = t_l.get_sizes()
 
-        segment_atus: List[ATUDescriptor] = []
-        segment_prefix_sum_bins: np.ndarray = np.zeros(shape=0, dtype=np.int64)
+    #     segment_atus: List[ATUDescriptor] = []
+    #     segment_prefix_sum_bins: np.ndarray = np.zeros(shape=0, dtype=np.int64)
 
-        def reverse_atu(atu: ATUDescriptor):
-            new_atu = atu.clone()
-            new_atu.direction = ATUDirection(1 - new_atu.direction)
-            return new_atu
+    #     def reverse_atu(atu: ATUDescriptor):
+    #         new_atu = atu.clone()
+    #         new_atu.direction = ATUDirection(1 - new_atu.direction)
+    #         return new_atu
 
-        def traverse_fn(n: ContigTree.Node):
-            if n.direction == ContigDirection.FORWARD:
-                segment_atus.extend(n.contig_descriptor.atus)
-                segment_prefix_sum_bins = np.concatenate(
-                    (
-                        segment_prefix_sum_bins,
-                        n.contig_descriptor.atu_prefix_sum_length_bins +
-                        segment_prefix_sum_bins[-1]
-                    )
-                )
-            else:
-                segment_atus.extend(map(
-                    reverse_atu,
-                    n.contig_descriptor.atus
-                ))
-                segment_prefix_sum_bins = np.concatenate(
-                    (
-                        segment_prefix_sum_bins,
-                        np.flip(n.contig_descriptor.atu_prefix_sum_length_bins) +
-                        segment_prefix_sum_bins[-1]
-                    )
-                )
+    #     def traverse_fn(n: ContigTree.Node):
+    #         if n.direction == ContigDirection.FORWARD:
+    #             segment_atus.extend(n.contig_descriptor.atus)
+    #             segment_prefix_sum_bins = np.concatenate(
+    #                 (
+    #                     segment_prefix_sum_bins,
+    #                     n.contig_descriptor.atu_prefix_sum_length_bins +
+    #                     segment_prefix_sum_bins[-1]
+    #                 )
+    #             )
+    #         else:
+    #             segment_atus.extend(map(
+    #                 reverse_atu,
+    #                 n.contig_descriptor.atus
+    #             ))
+    #             segment_prefix_sum_bins = np.concatenate(
+    #                 (
+    #                     segment_prefix_sum_bins,
+    #                     np.flip(n.contig_descriptor.atu_prefix_sum_length_bins) +
+    #                     segment_prefix_sum_bins[-1]
+    #                 )
+    #             )
 
-        ContigTree.traverse_nodes_at_resolution(
-            t_s,
-            resolution,
-            exclude_hidden,
-            traverse_fn
-        )
+    #     ContigTree.traverse_nodes_at_resolution(
+    #         t_s,
+    #         resolution,
+    #         exclude_hidden,
+    #         traverse_fn
+    #     )
 
-        # Find index of ATU where start position falls into
+    #     # Find index of ATU where start position falls into
 
-        if exclude_hidden_contigs:
-            stripe_tree: StripeTree = self.matrix_trees[resolution]
+    #     if exclude_hidden_contigs:
+    #         stripe_tree: StripeTree = self.matrix_trees[resolution]
 
-            stripes_in_range = stripe_tree.get_stripes_in_segment(
-                start_px_incl,
-                end_px_excl,
-                QueryLengthUnit.PIXELS
-            )
+    #         stripes_in_range = stripe_tree.get_stripes_in_segment(
+    #             start_px_incl,
+    #             end_px_excl,
+    #             QueryLengthUnit.PIXELS
+    #         )
 
-            stripes: List[StripeDescriptor] = list(filter(
-                lambda s: (
-                    s.contig_descriptor.presence_in_resolution[resolution] in (
-                        ContigHideType.AUTO_SHOWN,
-                        ContigHideType.FORCED_SHOWN
-                    )
-                ),
-                stripes_in_range.stripes
-            ))
+    #         stripes: List[StripeDescriptor] = list(filter(
+    #             lambda s: (
+    #                 s.contig_descriptor.presence_in_resolution[resolution] in (
+    #                     ContigHideType.AUTO_SHOWN,
+    #                     ContigHideType.FORCED_SHOWN
+    #                 )
+    #             ),
+    #             stripes_in_range.stripes
+    #         ))
 
-            if len(stripes) == 0:
-                return 0, []
+    #         if len(stripes) == 0:
+    #             return 0, []
 
-            # assert start_px_incl >= first_segment_contig_start_px, "Contig starts after its covered query?"
+    #         # assert start_px_incl >= first_segment_contig_start_px, "Contig starts after its covered query?"
 
-            # delta_in_px_between_left_query_border_and_stripe_start: np.int64 = (
-            #     start_px_incl - first_segment_contig_start_px +
-            #     stripes_in_range.first_stripe_start_bins - first_segment_contig_start_bins
-            # )
+    #         # delta_in_px_between_left_query_border_and_stripe_start: np.int64 = (
+    #         #     start_px_incl - first_segment_contig_start_px +
+    #         #     stripes_in_range.first_stripe_start_bins - first_segment_contig_start_bins
+    #         # )
 
-            delta_in_px_between_left_query_border_and_stripe_start: np.int64 = (
-                start_px_incl - stripes_in_range.first_stripe_start_px
-            )
+    #         delta_in_px_between_left_query_border_and_stripe_start: np.int64 = (
+    #             start_px_incl - stripes_in_range.first_stripe_start_px
+    #         )
 
-            query_length: np.int64 = end_px_excl - start_px_incl
-            sum_stripe_lengths = sum([s.stripe_length_bins for s in stripes])
-            assert (
-                sum_stripe_lengths >= query_length
-            ), f"Sum of stripes lengths {sum_stripe_lengths} is less than was queried: {query_length}?"
+    #         query_length: np.int64 = end_px_excl - start_px_incl
+    #         sum_stripe_lengths = sum([s.stripe_length_bins for s in stripes])
+    #         assert (
+    #             sum_stripe_lengths >= query_length
+    #         ), f"Sum of stripes lengths {sum_stripe_lengths} is less than was queried: {query_length}?"
 
-            return delta_in_px_between_left_query_border_and_stripe_start, stripes
-        else:
-            first_segment_contig_start_bins: np.int64 = start_px_incl
-            contig_segment_end_bins: np.int64 = end_px_excl
+    #         return delta_in_px_between_left_query_border_and_stripe_start, stripes
+    #     else:
+    #         first_segment_contig_start_bins: np.int64 = start_px_incl
+    #         contig_segment_end_bins: np.int64 = end_px_excl
 
-            stripe_tree: StripeTree = self.matrix_trees[resolution]
-            # 1+start because (start) bins should not be touched to the left of the query
-            stripes_in_range = stripe_tree.get_stripes_in_segment(
-                1 + first_segment_contig_start_bins,
-                contig_segment_end_bins
-            )
+    #         stripe_tree: StripeTree = self.matrix_trees[resolution]
+    #         # 1+start because (start) bins should not be touched to the left of the query
+    #         stripes_in_range = stripe_tree.get_stripes_in_segment(
+    #             1 + first_segment_contig_start_bins,
+    #             contig_segment_end_bins
+    #         )
 
-            stripes: List[StripeDescriptor] = stripes_in_range.stripes
+    #         stripes: List[StripeDescriptor] = stripes_in_range.stripes
 
-            if len(stripes) == 0:
-                return 0, []
+    #         if len(stripes) == 0:
+    #             return 0, []
 
-            delta_in_px_between_left_query_border_and_stripe_start: np.int64 = (
-                first_segment_contig_start_bins - stripes_in_range.first_stripe_start_bins
-            )
+    #         delta_in_px_between_left_query_border_and_stripe_start: np.int64 = (
+    #             first_segment_contig_start_bins - stripes_in_range.first_stripe_start_bins
+    #         )
 
-            return delta_in_px_between_left_query_border_and_stripe_start, stripes
+    #         return delta_in_px_between_left_query_border_and_stripe_start, stripes
 
     def get_coverage_matrix_pixels_internal(
             self,
