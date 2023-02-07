@@ -155,24 +155,32 @@ class ContigTree:
                 (new_node.left, new_node.right) = (
                     new_node.right, new_node.left)
                 if new_node.left is not None:
+                    new_node.left = new_node.left.clone()
                     new_node.left.needs_changing_direction = not new_node.left.needs_changing_direction
+                    new_node.left.parent = new_node
                 if new_node.right is not None:
+                    new_node.right = new_node.right.clone()
                     new_node.right.needs_changing_direction = not new_node.right.needs_changing_direction
+                    new_node.right.parent = new_node
                 new_node.direction = ContigDirection(
                     1 - new_node.direction.value)
                 new_node.needs_changing_direction = False
             if new_node.needs_updating_scaffold_id_in_subtree:
                 if new_node.left is not None:
+                    new_node.left = new_node.left.clone()
                     new_node.left.contig_descriptor.scaffold_id = new_node.contig_descriptor.scaffold_id
                     new_node.left.needs_updating_scaffold_id_in_subtree = True
+                    new_node.left.parent = new_node
                 if new_node.right is not None:
+                    new_node.right = new_node.right.clone()
                     new_node.right.contig_descriptor.scaffold_id = new_node.contig_descriptor.scaffold_id
                     new_node.right.needs_updating_scaffold_id_in_subtree = True
+                    new_node.right.parent = new_node
                 new_node.needs_updating_scaffold_id_in_subtree = False
             return new_node
 
         def true_direction(self) -> ContigDirection:
-            return self.contig_descriptor.direction ^ self.needs_changing_direction
+            return self.direction.value if not self.needs_changing_direction else ContigDirection(1 - self.direction.value)
 
         def get_sizes(self, update_sizes: bool = True):
             node: ContigTree.Node = self.update_sizes() if update_sizes else self
@@ -620,15 +628,19 @@ class ContigTree:
 
     def insert_at_position(self, contig_descriptor: ContigDescriptor, index: np.int64, direction: ContigDirection):
         new_node: ContigTree.Node = ContigTree.Node.make_new_node_from_descriptor(
-            contig_descriptor)
+            contig_descriptor,
+            direction=direction
+        )
         with self.root_lock.gen_wlock():
             self.contig_id_to_node_in_tree[contig_descriptor.contig_id] = new_node
             if self.root is not None:
                 (l, r) = self.split_node_by_count(self.root, index)
                 new_l: ContigTree.Node = self.merge_nodes(l, new_node)
                 self.root = self.merge_nodes(new_l, r)
+                self.root.parent = None
             else:
                 self.root = new_node
+            self.update_tree()
 
     def get_sizes(self) -> Tuple[Dict[np.int64, np.int64], np.int64, Dict[np.int64, np.int64]]:
         with self.root_lock.gen_wlock():
@@ -795,17 +807,40 @@ class ContigTree:
                 self.commit_exposed_segment((t_l, t_seg, t_gr))
 
     @staticmethod
-    def traverse_node(t: Optional[Node], f: Callable[[Node], None]):
+    def traverse_node(t: Optional[Node], f: Callable[[Node], None], check_parent_links: bool = False):
         if t is None:
             return
-        assert (t.left is None) or (t.left.parent ==
-                                    t), "Left subtree has no parent link"
-        assert (t.right is None) or (t.right.parent ==
-                                     t), "Right subtree has no parent link"
+        if check_parent_links:
+            assert (t.left is None) or (t.left.parent is
+                                        t), "Left subtree has no parent link"
+            assert (t.right is None) or (t.right.parent is
+                                         t), "Right subtree has no parent link"
         new_t = t.push()
         ContigTree.traverse_node(new_t.left, f)
         f(new_t)
         ContigTree.traverse_node(new_t.right, f)
+
+    @staticmethod
+    def update_subtree_state(t: Optional[Node]) -> Optional[Node]:
+        if t is None:
+            return None
+        new_t = t.push()
+        new_l = ContigTree.update_subtree_state(new_t.left)
+        new_r = ContigTree.update_subtree_state(new_t.right)
+        new_t.left = new_l
+        new_t.right = new_r
+        new_new_t = new_t.update_sizes()
+        if new_l is not None:
+            new_l.parent = new_new_t
+        if new_r is not None:
+            new_r.parent = new_new_t
+        return new_new_t
+
+    def update_tree(self):
+        with self.root_lock.gen_wlock():
+            old_root = self.root
+            new_root = ContigTree.update_subtree_state(old_root)
+            self.root = new_root
 
     @staticmethod
     def traverse_nodes_at_resolution(
@@ -813,57 +848,96 @@ class ContigTree:
         resolution: np.int64,
         exclude_hidden: bool,
         f: Callable[[Node], None],
-        push: bool = True
+        push: bool = True,
+        check_links=False
     ) -> None:
         if push:
             ContigTree.traverse_nodes_at_resolution_with_pushes(
                 t,
                 resolution,
                 exclude_hidden,
-                f
+                f,
+                check_links
             )
         else:
-            if t is None:
-                return
-            assert (t.left is None) or (t.left.parent ==
+            ContigTree.traverse_nodes_at_resolution_no_push(
+                t,
+                resolution,
+                exclude_hidden,
+                f,
+                check_links
+            )
+
+    @staticmethod
+    def traverse_nodes_at_resolution_no_push(
+        t: Optional[Node],
+        resolution: np.int64,
+        exclude_hidden: bool,
+        f: Callable[[Node], None],
+        check_links: bool = False
+    ) -> None:
+        if t is None:
+            return
+        if check_links:
+            assert (t.left is None) or (t.left.parent is
                                         t), "Left subtree has no parent link"
-            assert (t.right is None) or (t.right.parent ==
+            assert (t.right is None) or (t.right.parent is
                                          t), "Right subtree has no parent link"
-            ContigTree.traverse_nodes_at_resolution(
-                t.left if not t.needs_changing_direction else t.right,
-                f
-            )
-            if not exclude_hidden or t.contig_descriptor.presence_in_resolution[resolution] in (
-                    ContigHideType.AUTO_SHOWN,
-                    ContigHideType.FORCED_SHOWN
-            ):
-                f(t)
-            ContigTree.traverse_nodes_at_resolution(
-                t.right if not t.needs_changing_direction else t.left,
-                f
-            )
+        ContigTree.traverse_nodes_at_resolution_no_push(
+            t.left if not t.needs_changing_direction else t.right,
+            resolution,
+            exclude_hidden,
+            f,
+            check_links
+        )
+        if not exclude_hidden or t.contig_descriptor.presence_in_resolution[resolution] in (
+                ContigHideType.AUTO_SHOWN,
+                ContigHideType.FORCED_SHOWN
+        ):
+            f(t)
+        ContigTree.traverse_nodes_at_resolution_no_push(
+            t.right if not t.needs_changing_direction else t.left,
+            resolution,
+            exclude_hidden,
+            f,
+            check_links
+        )
 
     @staticmethod
     def traverse_nodes_at_resolution_with_pushes(
             t: Optional[Node],
             resolution: np.int64,
             exclude_hidden: bool,
-            f: Callable[[Node], None]
+            f: Callable[[Node], None],
+            check_links: bool = False
     ) -> None:
         if t is None:
             return
-        assert (t.left is None) or (t.left.parent ==
-                                    t), "Left subtree has no parent link"
-        assert (t.right is None) or (t.right.parent ==
-                                     t), "Right subtree has no parent link"
+        if check_links:
+            assert (t.left is None) or (t.left.parent is
+                                        t), "Left subtree has no parent link"
+            assert (t.right is None) or (t.right.parent is
+                                         t), "Right subtree has no parent link"
         new_t = t.push()
-        ContigTree.traverse_nodes_at_resolution_with_pushes(new_t.left, f)
+        ContigTree.traverse_nodes_at_resolution_with_pushes(
+            new_t.left,
+            resolution,
+            exclude_hidden,
+            f,
+            check_links
+        )
         if not exclude_hidden or new_t.contig_descriptor.presence_in_resolution[resolution] in (
                 ContigHideType.AUTO_SHOWN,
                 ContigHideType.FORCED_SHOWN
         ):
             f(new_t)
-        ContigTree.traverse_nodes_at_resolution_with_pushes(new_t.right, f)
+        ContigTree.traverse_nodes_at_resolution_with_pushes(
+            new_t.right,
+            resolution,
+            exclude_hidden,
+            f,
+            check_links
+        )
 
     def traverse(self, f: Callable[[Node], None]):
         with self.root_lock.gen_rlock():

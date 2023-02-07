@@ -129,13 +129,16 @@ class ATUDescriptor(RecordClass):
     ) -> Tuple['ATUDescriptor', Optional['ATUDescriptor']]:
         if d1.stripe_descriptor.stripe_id == d2.stripe_descriptor.stripe_id and d1.direction == d2.direction:
             if d1.end_index_in_stripe_excl == d2.start_index_in_stripe_incl:
+                assert (
+                    d1.start_index_in_stripe_incl < d2.end_index_in_stripe_excl
+                ), "L start < R end??"
                 return ATUDescriptor.make_atu_descriptor(
                     d1.stripe_descriptor,
                     d1.start_index_in_stripe_incl,
                     d2.end_index_in_stripe_excl,
                     d1.direction
                 ), None
-            else:
+            elif d2.end_index_in_stripe_excl == d1.start_index_in_stripe_incl:
                 return ATUDescriptor.merge(d1=d2, d2=d1)
         else:
             return d1, d2
@@ -195,13 +198,13 @@ class ContigDescriptor(RecordClass):
         assert (
             0 not in contig_length_at_resolution.keys()
         ), "There should be no resolution 1:0 as it is used internally to store contig length in base pairs"
-        contig_length_at_resolution = frozendict(
+        new_contig_length_at_resolution = frozendict(
             {**contig_length_at_resolution, **{np.int64(0): contig_length_bp}})
         return ContigDescriptor(
             contig_id,
             contig_name,
             # direction,
-            contig_length_at_resolution,
+            new_contig_length_at_resolution,
             scaffold_id,
             frozendict({**contig_presence_in_resolution, **
                        {np.int64(0): ContigHideType.FORCED_SHOWN}}),
@@ -214,7 +217,7 @@ class ContigDescriptor(RecordClass):
                             atu.start_index_in_stripe_incl, atus[resolution]
                         )
                     ), dtype=np.int64)
-                for resolution in contig_presence_in_resolution.keys()
+                for resolution in contig_length_at_resolution.keys()
             }
         )
 

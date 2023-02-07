@@ -252,8 +252,7 @@ class ContactMatrixFacet(object):
                 x0, y0,
                 x1, y1,
                 units,
-                exclude_hidden_contigs,
-                fetch_cooler_weights
+                exclude_hidden_contigs
             )
 
         return submatrix_and_weights

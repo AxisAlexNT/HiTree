@@ -68,10 +68,12 @@ class ChunkedFile(object):
         # self.block_intersection_cache_lock: Lock = threading.Lock()
         self.scaffold_holder: ScaffoldHolder = ScaffoldHolder()
         self.dtype: Optional[np.dtype] = None
-        self.hdf_file_lock: rwlock.RWLockWrite = rwlock.RWLockWrite(lock_factory=threading.RLock)
+        self.hdf_file_lock: rwlock.RWLockWrite = rwlock.RWLockWrite(
+            lock_factory=threading.RLock)
         self.opened_hdf_file: h5py.File = h5py.File(filepath, mode='r')
         self.fasta_processor: Optional[FASTAProcessor] = None
-        self.fasta_file_lock: rwlock.RWLockFair = rwlock.RWLockFair(lock_factory=threading.RLock)
+        self.fasta_file_lock: rwlock.RWLockFair = rwlock.RWLockFair(
+            lock_factory=threading.RLock)
         self.multithreading_pool_size = multithreading_pool_size
 
     def open(self):
@@ -178,6 +180,7 @@ class ChunkedFile(object):
                     contig_length_bp=contig_id_to_contig_length_bp[contig_id],
                     contig_length_at_resolution=resolution_to_contig_length,
                     contig_presence_in_resolution=contig_presence_at_resolution,
+                    # {resolution: list(map(lambda ati: self.atl[resolution][ati], contig_id_to_atus[contig_id][resolution])) for resolution in resolutions},
                     atus=contig_id_to_atus[contig_id],
                     scaffold_id=contig_id_to_scaffold_id[contig_id]
                 )
@@ -252,7 +255,7 @@ class ChunkedFile(object):
     def read_atl(
         self,
         f: h5py.File
-    ) -> Dict[np.int64, ATUDescriptor]:
+    ) -> Dict[np.int64, List[ATUDescriptor]]:
         resolution_atus: Dict[np.int64, ATUDescriptor] = dict()
 
         for resolution in self.resolutions:
@@ -605,7 +608,8 @@ class ChunkedFile(object):
         c: np.int64 = col_stripe.stripe_id
 
         with self.hdf_file_lock.gen_rlock():
-            blocks_dir: h5py.Group = self.opened_hdf_file[f'/resolutions/{resolution}/treap_coo']
+            blocks_dir: h5py.Group = self.opened_hdf_file[
+                f'/resolutions/{resolution}/treap_coo']
             stripes_count: np.int64 = blocks_dir.attrs['stripes_count']
             block_index_in_datasets: np.int64 = r * stripes_count + c
 
@@ -644,7 +648,7 @@ class ChunkedFile(object):
                             )
                         ),
                         shape=(row_stripe.stripe_length_bins,
-                            col_stripe.stripe_length_bins)
+                               col_stripe.stripe_length_bins)
                     )
                     mx_as_array = self.sparse_to_dense(mx)
 
@@ -652,7 +656,8 @@ class ChunkedFile(object):
                     assert (
                         row_atu.stripe_descriptor == col_atu.stripe_descriptor
                     ), "Fetched stripe descriptors have the same ids, but are not equal??"
-                    mx_as_array = np.where(mx_as_array, mx_as_array, mx_as_array.T)
+                    mx_as_array = np.where(
+                        mx_as_array, mx_as_array, mx_as_array.T)
 
                 if needs_transpose:
                     mx_as_array = mx_as_array.T
@@ -680,21 +685,18 @@ class ChunkedFile(object):
             resolution,
             start_row_incl,
             end_row_excl,
-            units,
             exclude_hidden_contigs
         )
         col_atus: List[ATUDescriptor] = self.get_atus_for_range(
             resolution,
             start_col_incl,
             end_col_excl,
-            units,
             exclude_hidden_contigs
         )
-        
+
         row_matrices: List[np.ndarray] = []
         row_subweights: List[np.ndarray] = []
-        
-        
+
         for row_atu in row_atus:
             def load_intersection(col_atu: ATUDescriptor) -> np.ndarray:
                 return self.get_atu_intersection(
@@ -702,21 +704,19 @@ class ChunkedFile(object):
                     row_atu=row_atu,
                     col_atu=col_atu
                 )
-            with Pool(processes=self.multithreading_pool_size) as P:
-                row_subtotals = P.map(load_intersection, col_atus)
-                row_submatrices = (t[0] for t in row_subtotals)
-                row = np.hstack(row_submatrices)
-                row_matrices.append(row)
-                row_subweights.append(row_subtotals[0][1])
+            # with Pool(processes=self.multithreading_pool_size) as P:
+                # row_subtotals = P.map(load_intersection, col_atus)
+            row_subtotals = tuple(map(load_intersection, col_atus))
+            row_submatrices = (t[0] for t in row_subtotals)
+            row = np.hstack(row_submatrices)
+            row_matrices.append(row)
+            row_subweights.append(row_subtotals[0][1])
         col_subweights = (t[2] for t in row_subtotals)
         row_weights = np.hstack(row_subweights)
         col_weights = np.hstack(col_subweights)
         result = np.vstack(row_matrices)
-        
-        return result, row_weights, col_weights
-                
 
-        
+        return result, row_weights, col_weights
 
     def get_atu_intersection(
         self,
@@ -729,14 +729,14 @@ class ChunkedFile(object):
             row_atu,
             col_atu
         )
-        
+
         row_weights = row_atu.stripe_descriptor.bin_weights
         col_weights = col_atu.stripe_descriptor.bin_weights
         if row_atu.direction == ATUDirection.REVERSED:
             row_weights = np.flip(row_weights)
         if col_atu.direction == ATUDirection.REVERSED:
             col_weights = np.flip(col_weights)
-            
+
         return atu_intersection_dense, row_weights, col_weights
 
     # def get_submatrix_old(
@@ -920,7 +920,7 @@ class ChunkedFile(object):
                 )[2 if exclude_hidden_contigs else 0][resolution]
             else:
                 less_size = np.int64(0)
-            delta_px_between_segment_first_contig_start_and_query_start: np.int64 = start_px_incl - less_size - 1
+            delta_px_between_segment_first_contig_start_and_query_start: np.int64 = start_px_incl - less_size
             assert delta_px_between_segment_first_contig_start_and_query_start >= 0
 
             total_segment_length_px: np.int64 = es.segment.get_sizes(
@@ -929,7 +929,7 @@ class ChunkedFile(object):
             atus: List[ATUDescriptor] = []
 
             def traverse_fn(node: ContigTree.Node) -> None:
-                contig_atus = node.contig_descriptor.atus
+                contig_atus = node.contig_descriptor.atus[resolution]
                 contig_direction = node.true_direction()
                 if contig_direction == ContigDirection.REVERSED:
                     contig_atus = reversed(contig_atus)
@@ -945,7 +945,7 @@ class ChunkedFile(object):
 
             assert (
                 sum(map(lambda atu: atu.end_index_in_stripe_excl -
-                    atu.start_index_in_stripe_incl, atus)) == total_segment_length_px
+                    atu.start_index_in_stripe_incl, atus)) >= total_segment_length_px
             ), "ATUs total length is less than exposed segment length??"
 
             # TODO: maybe no push is needed
@@ -957,18 +957,18 @@ class ChunkedFile(object):
             first_contig_in_segment: ContigDescriptor = first_contig_node_in_segment.contig_descriptor
 
             index_of_atu_containing_start: np.int64 = np.searchsorted(
-                first_contig_in_segment.atu_prefix_sum_length_bins,
+                first_contig_in_segment.atu_prefix_sum_length_bins[resolution],
                 delta_px_between_segment_first_contig_start_and_query_start,
                 side='right'
             )
 
             assert (
                 index_of_atu_containing_start < len(
-                    first_contig_in_segment.atu_prefix_sum_length_bins)
+                    first_contig_in_segment.atu_prefix_sum_length_bins[resolution])
             ), "Start of query does not fall into exposed leftmost contig??"
 
             length_of_atus_before_one_containing_start_px: np.int64 = (
-                first_contig_in_segment.atu_prefix_sum_length_bins[
+                first_contig_in_segment.atu_prefix_sum_length_bins[resolution][
                     index_of_atu_containing_start-1
                 ] if index_of_atu_containing_start > 0 else np.int64(0)
             )
@@ -987,7 +987,8 @@ class ChunkedFile(object):
                 (less_size + segment_size)
             # TODO: maybe no push
             last_contig_node = es.segment.rightmost()
-            last_contig_atus_prefix_sum = last_contig_node.contig_descriptor.atu_prefix_sum_length_bins
+            last_contig_atus_prefix_sum = last_contig_node.contig_descriptor.atu_prefix_sum_length_bins[
+                resolution]
             if last_contig_node.direction == ContigDirection.REVERSED:
                 last_contig_atus_prefix_sum = reversed(
                     last_contig_atus_prefix_sum)
@@ -1014,7 +1015,17 @@ class ChunkedFile(object):
             new_last_atu.end_index_in_stripe_excl = length_of_last_atu
             atus[-1] = new_last_atu
 
+            assert all(map(
+                lambda atu: atu.start_index_in_stripe_incl < atu.end_index_in_stripe_excl,
+                atus
+            )), "Incorrect ATUs before reduce??"
+
             result_atus = ATUDescriptor.reduce(atus)
+
+            assert all(map(
+                lambda atu: atu.start_index_in_stripe_incl < atu.end_index_in_stripe_excl,
+                result_atus
+            )), "Incorrect ATUs after reduce??"
 
         assert (
             (len(result_atus) <= 0) == (start_px_incl >= end_px_excl)
