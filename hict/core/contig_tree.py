@@ -767,6 +767,9 @@ class ContigTree:
         Exposes segment from start to end units (both inclusive).
         """
         with self.root_lock.gen_rlock():
+            total_assembly_length = (
+                self.root.get_sizes()[[1, 0, 2][units.value]][resolution]
+            ) if self.root is not None else 0
             (t_le, t_gr) = self.split_node_by_length(
                 resolution,
                 self.root,
@@ -779,7 +782,7 @@ class ContigTree:
                     t_le.get_sizes()[2 if units ==
                                      QueryLengthUnit.PIXELS else 0][resolution]
                     >=
-                    end+1
+                    max(0, min(total_assembly_length, end+1))
                 )
             ), "After splitting less-or-equal segment ends earlier than queried??"
             (t_l, t_seg) = self.split_node_by_length(
