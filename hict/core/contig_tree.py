@@ -318,7 +318,13 @@ class ContigTree:
                 left_length = new_t.left.subtree_length_px[resolution]
             else:
                 left_length = new_t.left.subtree_length_bins[resolution]
+        if new_t.right is not None:
+            new_t.right = new_t.right.push().update_sizes()    
         new_t = new_t.update_sizes()
+        if new_t.left is not None:
+            new_t.left.parent = new_t
+        if new_t.right is not None:
+            new_t.right.parent = new_t
                 
         if k <= left_length:
             (t1, t2) = self.split_node_by_length_internal(
@@ -369,7 +375,7 @@ class ContigTree:
             else:
                 (t1, t2) = self.split_node_by_length_internal(
                     resolution,
-                    new_t.right.push().update_sizes(),
+                    new_t.right,
                     k - (left_length + contig_node_length),
                     include_equal_to_the_left,
                     exclude_hidden_contigs

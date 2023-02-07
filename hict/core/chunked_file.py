@@ -1039,9 +1039,7 @@ class ChunkedFile(object):
             last_contig_atus_prefix_sum = last_contig_node.contig_descriptor.atu_prefix_sum_length_bins[
                 resolution]
             if last_contig_node.direction == ContigDirection.REVERSED:
-                # TODO: Not just reversed
-                last_contig_atus_prefix_sum = reversed(
-                    last_contig_atus_prefix_sum)
+                last_contig_atus_prefix_sum[:-1] = last_contig_atus_prefix_sum[-1] - np.flip(last_contig_atus_prefix_sum)[1:]
             last_contig_length: np.int64 = last_contig_node.contig_descriptor.contig_length_at_resolution[
                 resolution]
             delta_from_contig_start_to_end_excl: np.int64 = last_contig_length + \
