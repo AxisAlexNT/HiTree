@@ -707,8 +707,14 @@ class ChunkedFile(object):
                 )
             # with Pool(processes=self.multithreading_pool_size) as P:
                 # row_subtotals = P.map(load_intersection, col_atus)
-            row_subtotals: Iterable[Tuple[np.ndarray, np.ndarray, np.ndarray]] = tuple(map(load_intersection, col_atus))
-            row_submatrices = (t[0] for t in row_subtotals)
+            row_subtotals: Iterable[Tuple[np.ndarray, np.ndarray, np.ndarray]] = list(map(load_intersection, col_atus))
+            row_submatrices: List[np.ndarray] = [t[0] for t in row_subtotals]
+            assert all(
+                (
+                    sbm.shape[0] == row_submatrices[0].shape[0]
+                    for sbm in row_submatrices
+                )
+            ), "Not all submatrices in row have the same row count??"
             row = np.hstack(row_submatrices)
             row_matrices.append(row)
             row_subweights.append(row_subtotals[0][1])
@@ -1018,9 +1024,13 @@ class ChunkedFile(object):
                 delta_px_between_segment_first_contig_start_and_query_start -
                 length_of_atus_before_one_containing_start_px
             )
+            
+            assert (
+                0 <= new_first_atu.start_index_in_stripe_incl < new_first_atu.stripe_descriptor.stripe_length_bins
+            ), "Incorrect first ATU left border??"
 
             atus[index_of_atu_containing_start] = new_first_atu
-            result_atus = atus[index_of_atu_containing_start:]
+            atus = atus[index_of_atu_containing_start:]
 
             delta_between_right_px_and_exposed_segment: np.int64 = end_px_excl - \
                 (less_size + segment_size)
@@ -1029,6 +1039,7 @@ class ChunkedFile(object):
             last_contig_atus_prefix_sum = last_contig_node.contig_descriptor.atu_prefix_sum_length_bins[
                 resolution]
             if last_contig_node.direction == ContigDirection.REVERSED:
+                # TODO: Not just reversed
                 last_contig_atus_prefix_sum = reversed(
                     last_contig_atus_prefix_sum)
             last_contig_length: np.int64 = last_contig_node.contig_descriptor.contig_length_at_resolution[
@@ -1048,7 +1059,7 @@ class ChunkedFile(object):
             deleted_atus_length: np.int64 = np.int64(0)
             if right_offset > 0:
                 atus = atus[:-right_offset]
-                deleted_atus_length = last_contig_atus_prefix_sum[-1] - last_contig_atus_prefix_sum[-right_offset]
+                deleted_atus_length = last_contig_atus_prefix_sum[-1] - last_contig_atus_prefix_sum[-right_offset-1]
 
             length_before_that_atu = (
                 last_contig_atus_prefix_sum[index_of_atu_where_end_px_incl_is_located-1]
@@ -1058,13 +1069,31 @@ class ChunkedFile(object):
 
             old_last_atu = atus[-1]
             new_last_atu = old_last_atu.clone()
-            new_last_atu.end_index_in_stripe_excl += (delta_between_right_px_and_exposed_segment + deleted_atus_length) #length_of_last_atu
+            new_last_atu.end_index_in_stripe_excl = new_last_atu.start_index_in_stripe_incl + length_of_last_atu #+= (delta_between_right_px_and_exposed_segment + deleted_atus_length) #length_of_last_atu
+            assert (
+                new_last_atu.stripe_descriptor.stripe_length_bins >= new_last_atu.end_index_in_stripe_excl > new_last_atu.start_index_in_stripe_incl
+            ), "Incorrect ATU right border??"
             atus[-1] = new_last_atu
 
             assert all(map(
                 lambda atu: atu.start_index_in_stripe_incl < atu.end_index_in_stripe_excl,
                 atus
             )), "Incorrect ATUs before reduce??"
+            
+            total_atu_length = sum(
+                map(
+                    lambda atu: atu.end_index_in_stripe_excl -
+                    atu.start_index_in_stripe_incl, atus
+                )
+            )
+
+            assert (
+                total_atu_length
+                == (
+                    min(end_px_excl, total_assembly_length) -
+                    start_px_incl
+                )
+            ), "ATUs total length is not equal to the requested query??"
 
             result_atus = ATUDescriptor.reduce(atus)
 
@@ -1090,7 +1119,7 @@ class ChunkedFile(object):
                 min(end_px_excl, total_assembly_length) -
                 start_px_incl
             )
-        ), "ATUs total length is not equal to the requested query??"
+        ), "Resulting ATUs total length is not equal to the requested query??"
 
         # self.contig_tree.commit_exposed_segment(es)
         return result_atus
