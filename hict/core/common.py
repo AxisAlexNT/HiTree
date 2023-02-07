@@ -140,8 +140,7 @@ class ATUDescriptor(RecordClass):
                 ), None
             elif d2.end_index_in_stripe_excl == d1.start_index_in_stripe_incl:
                 return ATUDescriptor.merge(d1=d2, d2=d1)
-        else:
-            return d1, d2
+        return d1, d2
 
     @staticmethod
     def reduce(

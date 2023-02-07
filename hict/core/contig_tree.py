@@ -15,7 +15,7 @@ from readerwriterlock import rwlock
 np.seterr(all='raise')
 
 
-random.seed(324590754802)
+# random.seed(324590754802)
 
 class ContigTree:
     class ExposedSegment(NamedTuple):
@@ -801,7 +801,7 @@ class ContigTree:
                 )
             ), "After splitting less segment starts not when queried??"
             if t_seg is not None:
-                t_seg = t_seg.push()
+                t_seg = t_seg.push().update_sizes()
                 if units == QueryLengthUnit.PIXELS:
                     assert (
                         t_seg.get_sizes()[2][resolution] >= end-start+1
