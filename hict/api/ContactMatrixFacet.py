@@ -241,7 +241,6 @@ class ContactMatrixFacet(object):
                 y0_in_contig_px.global_position_px,
                 1 + x1_in_contig_px.global_position_px,
                 1 + y1_in_contig_px.global_position_px,
-                units,
                 exclude_hidden_contigs=exclude_hidden_contigs,
                 fetch_cooler_weights=fetch_cooler_weights
             )
@@ -251,7 +250,6 @@ class ContactMatrixFacet(object):
                 resolution,
                 x0, y0,
                 x1, y1,
-                units,
                 exclude_hidden_contigs
             )
 

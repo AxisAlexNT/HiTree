@@ -15,7 +15,7 @@ from readerwriterlock import rwlock
 np.seterr(all='raise')
 
 
-# random.seed(324590754802)
+random.seed(324590754802)
 
 class ContigTree:
     class ExposedSegment(NamedTuple):
@@ -308,16 +308,18 @@ class ContigTree:
         if t is None:
             return None, None
         if k <= 0:
-            return None, t.clone()
+            return None, t.push().update_sizes()
         assert resolution in t.subtree_length_bins.keys(), "Unknown resolution"
         new_t = t.push()
-        left_length: np.int64 = (
-            (new_t.left.subtree_length_bins[resolution]
-             if new_t.left is not None else 0)
-            if not exclude_hidden_contigs else
-            (new_t.left.subtree_length_px[resolution]
-             if new_t.left is not None else 0)
-        )
+        left_length: np.int64 = 0
+        if new_t.left is not None:
+            new_t.left = new_t.left.push().update_sizes()
+            if exclude_hidden_contigs:
+                left_length = new_t.left.subtree_length_px[resolution]
+            else:
+                left_length = new_t.left.subtree_length_bins[resolution]
+        new_t = new_t.update_sizes()
+                
         if k <= left_length:
             (t1, t2) = self.split_node_by_length_internal(
                 resolution,
@@ -326,12 +328,15 @@ class ContigTree:
                 include_equal_to_the_left,
                 exclude_hidden_contigs
             )
-            new_t.left = t2
-            new_t.update_sizes()
-            if t1 is not None:
-                t1.parent = None
             if t2 is not None:
-                t2.parent = new_t
+                t2 = t2.push().update_sizes()
+            new_t.left = t2
+            new_t = new_t.push().update_sizes()
+            if t1 is not None:
+                t1 = t1.push().update_sizes()
+                t1.parent = None
+            if new_t.left is not None:
+                new_t.left.parent = new_t
             return t1, new_t
         else:
             contig_node_length: np.int64 = (
@@ -347,31 +352,35 @@ class ContigTree:
                 if include_equal_to_the_left:
                     t2 = new_t.right
                     new_t.right = None
-                    new_t = new_t.update_sizes()
+                    new_t = new_t.push().update_sizes()
                     if t2 is not None:
-                        t2.parent = None
+                        t2 = t2.push().update_sizes()
+                        t2.parent = None                        
                     return new_t, t2
                 else:
                     t1 = new_t.left
                     new_t.left = None
-                    new_t = new_t.update_sizes()
+                    new_t = new_t.push().update_sizes()
                     if t1 is not None:
+                        t1 = t1.push().update_sizes()
                         t1.parent = None
                     return t1, new_t
 
             else:
                 (t1, t2) = self.split_node_by_length_internal(
                     resolution,
-                    new_t.right,
+                    new_t.right.push().update_sizes(),
                     k - (left_length + contig_node_length),
                     include_equal_to_the_left,
                     exclude_hidden_contigs
                 )
             new_t.right = t1
-            new_t = new_t.update_sizes()
+            new_t = new_t.push().update_sizes()
             if t1 is not None:
+                t1 = t1.push().update_sizes()
                 t1.parent = new_t
             if t2 is not None:
+                t2 = t2.push().update_sizes()
                 t2.parent = None
             return new_t, t2
 
@@ -759,6 +768,14 @@ class ContigTree:
                 include_equal_to_the_left=True,
                 units=units
             )
+            assert (
+                (t_le is None) or (
+                    t_le.get_sizes()[2 if units ==
+                                     QueryLengthUnit.PIXELS else 0][resolution]
+                    >=
+                    end+1
+                )
+            ), "After splitting less-or-equal segment ends earlier than queried??"
             (t_l, t_seg) = self.split_node_by_length(
                 resolution,
                 t_le,
@@ -766,6 +783,14 @@ class ContigTree:
                 include_equal_to_the_left=False,
                 units=units
             )
+            assert (
+                (t_l is None) or (
+                    t_l.get_sizes()[2 if units ==
+                                    QueryLengthUnit.PIXELS else 0][resolution]
+                    <=
+                    start
+                )
+            ), "After splitting less segment starts not when queried??"
             if t_seg is not None:
                 t_seg = t_seg.push()
                 if units == QueryLengthUnit.PIXELS:
