@@ -682,6 +682,14 @@ class ChunkedFile(object):
             end_col_excl: np.int64,
             exclude_hidden_contigs: bool
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        
+        total_assembly_length = self.contig_tree.get_sizes()[2 if exclude_hidden_contigs else 0][resolution]
+                
+        start_row_incl = constrain_coordinate(start_row_incl, 0, total_assembly_length)
+        end_row_excl = constrain_coordinate(end_row_excl, 0, total_assembly_length)
+        start_col_incl = constrain_coordinate(start_col_incl, 0, total_assembly_length)
+        end_col_excl = constrain_coordinate(end_col_excl, 0, total_assembly_length)
+        
         row_atus: List[ATUDescriptor] = self.get_atus_for_range(
             resolution,
             start_row_incl,
@@ -919,23 +927,20 @@ class ChunkedFile(object):
         end_px_excl: np.int64,
         exclude_hidden_contigs: bool,
     ) -> List[ATUDescriptor]:
+        total_assembly_length = self.contig_tree.get_sizes()[2 if exclude_hidden_contigs else 0][resolution]
+        start_px_incl = constrain_coordinate(start_px_incl, 0, total_assembly_length)
+        end_px_excl = constrain_coordinate(end_px_excl, 0, total_assembly_length)
+        
         es: ContigTree.ExposedSegment = self.contig_tree.expose_segment(
             resolution,
             start_px_incl,
             end_px_excl-1,
             units=QueryLengthUnit.PIXELS if exclude_hidden_contigs else QueryLengthUnit.BINS
         )
-
+        
         result_atus: List[ATUDescriptor]
 
         query_length: np.int64 = end_px_excl - start_px_incl
-
-        total_assembly_length = (
-            (es.less.get_sizes()[2 if exclude_hidden_contigs else 0][resolution] if es.less is not None else np.int64(0)) +
-            (es.segment.get_sizes()[2 if exclude_hidden_contigs else 0][resolution] if es.segment is not None else np.int64(0)) +
-            (es.greater.get_sizes()[2 if exclude_hidden_contigs else 0]
-             [resolution] if es.greater is not None else np.int64(0))
-        )
 
         if es.segment is None:
             assert query_length <= 0, "Query is not zero-length, but no ATUs were found?"

@@ -658,14 +658,14 @@ class ContigTree:
             self.update_tree()
 
     def get_sizes(self) -> Tuple[Dict[np.int64, np.int64], np.int64, Dict[np.int64, np.int64]]:
-        with self.root_lock.gen_wlock():
+        with self.root_lock.gen_rlock():
             if self.root is not None:
-                return self.root.get_sizes()
+                return self.root.update_sizes().get_sizes()
             else:
-                return dict({0: 0}), 0, dict({0: 0})
+                return dict({res: 0 for res in self.resolutions}), 0, dict({res: 0 for res in self.resolutions})
 
     def get_node_count(self):
-        with self.root_lock.gen_wlock():
+        with self.root_lock.gen_rlock():
             if self.root is not None:
                 self.root.update_sizes()
                 return self.root.subtree_count
