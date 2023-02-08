@@ -779,8 +779,7 @@ class ContigTree:
             )
             assert (
                 (t_le is None) or (
-                    t_le.get_sizes()[2 if units ==
-                                     QueryLengthUnit.PIXELS else 0][resolution]
+                    t_le.get_sizes()[[1, 0, 2][units.value]][resolution]
                     >=
                     max(0, min(total_assembly_length, end+1))
                 )
@@ -794,8 +793,7 @@ class ContigTree:
             )
             assert (
                 (t_l is None) or (
-                    t_l.get_sizes()[2 if units ==
-                                    QueryLengthUnit.PIXELS else 0][resolution]
+                    t_l.get_sizes()[[1, 0, 2][units.value]][resolution]
                     <=
                     start
                 )
