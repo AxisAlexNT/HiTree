@@ -1041,38 +1041,26 @@ class ChunkedFile(object):
                 (less_size + segment_size)
             # TODO: maybe no push
             last_contig_node = es.segment.rightmost()
-            last_contig_atus_prefix_sum = last_contig_node.contig_descriptor.atu_prefix_sum_length_bins[
-                resolution]
-            if last_contig_node.direction == ContigDirection.REVERSED:
-                last_contig_atus_prefix_sum[:-1] = last_contig_atus_prefix_sum[-1] - np.flip(last_contig_atus_prefix_sum)[1:]
-            last_contig_length: np.int64 = last_contig_node.contig_descriptor.contig_length_at_resolution[
-                resolution]
-            delta_from_contig_start_to_end_excl: np.int64 = last_contig_length + \
-                delta_between_right_px_and_exposed_segment
+            reversed_last_contig_atus_prefix_sum = last_contig_node.contig_descriptor.atu_prefix_sum_length_bins[
+                resolution].copy()
+            if last_contig_node.direction == ContigDirection.FORWARD:
+                reversed_last_contig_atus_prefix_sum[:-1] = reversed_last_contig_atus_prefix_sum[-1] - np.flip(reversed_last_contig_atus_prefix_sum)[1:]
 
-            index_of_atu_where_end_px_incl_is_located: np.int64 = np.searchsorted(
-                last_contig_atus_prefix_sum,
-                delta_from_contig_start_to_end_excl-1,
+            right_offset_atus: np.int64 = np.searchsorted(
+                reversed_last_contig_atus_prefix_sum,
+                -delta_between_right_px_and_exposed_segment,
                 side='right'
             )
 
-            last_contig_atu_count = len(last_contig_atus_prefix_sum)
-            right_offset = (last_contig_atu_count -
-                            index_of_atu_where_end_px_incl_is_located-1)
             deleted_atus_length: np.int64 = np.int64(0)
-            if right_offset > 0:
-                atus = atus[:-right_offset]
-                deleted_atus_length = last_contig_atus_prefix_sum[-1] - last_contig_atus_prefix_sum[-right_offset-1]
+            if right_offset_atus > 0:
+                atus = atus[:-right_offset_atus]
+                deleted_atus_length = reversed_last_contig_atus_prefix_sum[right_offset_atus-1]
 
-            length_before_that_atu = (
-                last_contig_atus_prefix_sum[index_of_atu_where_end_px_incl_is_located-1]
-            ) if index_of_atu_where_end_px_incl_is_located > 0 else np.int64(0)
-            
-            length_of_last_atu = delta_from_contig_start_to_end_excl - length_before_that_atu
 
             old_last_atu = atus[-1]
             new_last_atu = old_last_atu.clone()
-            new_last_atu.end_index_in_stripe_excl = new_last_atu.start_index_in_stripe_incl + length_of_last_atu #+= (delta_between_right_px_and_exposed_segment + deleted_atus_length) #length_of_last_atu
+            new_last_atu.end_index_in_stripe_excl += (deleted_atus_length + delta_between_right_px_and_exposed_segment)
             assert (
                 new_last_atu.stripe_descriptor.stripe_length_bins >= new_last_atu.end_index_in_stripe_excl > new_last_atu.start_index_in_stripe_incl
             ), "Incorrect ATU right border??"
