@@ -3,7 +3,7 @@ from enum import Enum
 from io import BytesIO
 from pathlib import Path
 from typing import Iterable, Set, Union
-from multiprocessing import Pool
+import multiprocessing, multiprocessing.managers
 import copy
 
 import h5py
@@ -50,6 +50,7 @@ class ChunkedFile(object):
             filepath: str,
             block_cache_size: int = 64,
             multithreading_pool_size: int = 8,
+            mp_manager: Optional[multiprocessing.managers.SyncManager] = None
     ) -> None:
         super().__init__()
         self.filepath: str = filepath
@@ -70,12 +71,17 @@ class ChunkedFile(object):
         # self.block_intersection_cache_lock: Lock = threading.Lock()
         self.scaffold_holder: ScaffoldHolder = ScaffoldHolder()
         self.dtype: Optional[np.dtype] = None
+        self.mp_manager = mp_manager
+        if mp_manager is not None:
+            lock_factory = mp_manager.RLock
+        else:
+            lock_factory = threading.RLock
         self.hdf_file_lock: rwlock.RWLockWrite = rwlock.RWLockWrite(
-            lock_factory=threading.RLock)
+            lock_factory=lock_factory)
         self.opened_hdf_file: h5py.File = h5py.File(filepath, mode='r')
         self.fasta_processor: Optional[FASTAProcessor] = None
         self.fasta_file_lock: rwlock.RWLockFair = rwlock.RWLockFair(
-            lock_factory=threading.RLock)
+            lock_factory=lock_factory)
         self.multithreading_pool_size = multithreading_pool_size
 
     def open(self):
@@ -702,9 +708,24 @@ class ChunkedFile(object):
             end_col_excl,
             exclude_hidden_contigs
         )
+        
+        query_rows_count = end_row_excl - start_row_incl
+        query_cols_count = end_col_excl - start_col_incl
+        
+        if start_row_incl < end_row_excl and 0 <= start_row_incl < total_assembly_length:
+            assert (
+                len(row_atus) > 0
+            ), "Query is correct but no rows were found??"
+            
+        if start_col_incl < end_col_excl and 0 <= start_col_incl < total_assembly_length:
+            assert (
+                len(col_atus) > 0
+            ), "Query is correct but no columns were found??"
 
         row_matrices: List[np.ndarray] = []
         row_subweights: List[np.ndarray] = []
+
+        row_subtotals: Iterable[Tuple[np.ndarray, np.ndarray, np.ndarray]] = []
 
         for row_atu in row_atus:
             def load_intersection(col_atu: ATUDescriptor) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -715,21 +736,53 @@ class ChunkedFile(object):
                 )
             # with Pool(processes=self.multithreading_pool_size) as P:
                 # row_subtotals = P.map(load_intersection, col_atus)
-            row_subtotals: Iterable[Tuple[np.ndarray, np.ndarray, np.ndarray]] = list(map(load_intersection, col_atus))
+            row_subtotals = list(map(load_intersection, col_atus))
             row_submatrices: List[np.ndarray] = [t[0] for t in row_subtotals]
-            assert all(
-                (
-                    sbm.shape[0] == row_submatrices[0].shape[0]
-                    for sbm in row_submatrices
-                )
-            ), "Not all submatrices in row have the same row count??"
-            row = np.hstack(row_submatrices)
+            if len(col_atus) > 0:
+                assert all(
+                    (
+                        sbm.shape[0] == row_submatrices[0].shape[0]
+                        for sbm in row_submatrices
+                    )
+                ), "Not all submatrices in row have the same row count??"
+                assert (
+                    row_submatrices[0].shape[0] == (
+                        row_atu.end_index_in_stripe_excl - row_atu.start_index_in_stripe_incl
+                    )
+                ), "Row height is not equal to what ATU describes??"
+                row = (
+                    np.hstack(row_submatrices)
+                ) # if len(row_submatrices) > 0 else np.zeros(shape=(row_atu.end_index_in_stripe_excl - row_atu.start_index_in_stripe_incl,))
+                row_subweights.append(row_subtotals[0][1])
+            else:
+                assert (
+                    query_cols_count <= 0
+                ), "No column ATUs are present, but query is non-trivial for columns??"
+                row = np.zeros(shape=(row_atu.end_index_in_stripe_excl - row_atu.start_index_in_stripe_incl, 0))
             row_matrices.append(row)
-            row_subweights.append(row_subtotals[0][1])
-        col_subweights = (t[2] for t in row_subtotals)
-        row_weights = np.hstack(row_subweights)
-        col_weights = np.hstack(col_subweights)
-        result = np.vstack(row_matrices)
+        
+        if len(row_subweights) > 0:
+            row_weights = np.hstack(row_subweights)
+        else:
+            row_weights = np.ones(shape=max(0, query_rows_count))
+        
+        col_subweights = [t[2] for t in row_subtotals]
+        if len(col_subweights) > 0:
+            col_weights = np.hstack(col_subweights)
+        else:
+            col_weights = np.ones(shape=max(0, query_cols_count))
+            
+            
+        if query_rows_count > 0 and query_cols_count > 0:
+            result = np.vstack(row_matrices)
+            assert (
+                len(row_subweights) > 0
+            ), "No row weights were fetched, but query is non-trivial for rows??"
+            assert (
+                len(col_subweights) > 0
+            ), "No column weights were fetched, but query is non-trivial for columns??"
+        else:
+            result = np.zeros(shape=(max(0, query_rows_count), max(0, query_cols_count)))  
 
         assert (
             result.shape[0] == (end_row_excl-start_row_incl)
@@ -933,8 +986,8 @@ class ChunkedFile(object):
         
         es: ContigTree.ExposedSegment = self.contig_tree.expose_segment(
             resolution,
-            start_px_incl,
-            end_px_excl-1,
+            1+start_px_incl,
+            end_px_excl,
             units=QueryLengthUnit.PIXELS if exclude_hidden_contigs else QueryLengthUnit.BINS
         )
         

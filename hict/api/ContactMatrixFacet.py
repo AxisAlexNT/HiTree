@@ -1,3 +1,5 @@
+import multiprocessing
+import multiprocessing.managers
 from typing import List, Tuple
 import copy
 from pathlib import Path
@@ -28,7 +30,12 @@ class ContactMatrixFacet(object):
         pass
 
     @staticmethod
-    def get_file_descriptor(filepath: str, block_cache_size: int = 64) -> ChunkedFile:
+    def get_file_descriptor(
+        filepath: str,
+        block_cache_size: int = 64,
+        multithreading_pool_size: int = 8,
+        mp_manager: Optional[multiprocessing.managers.SyncManager] = None
+    ) -> ChunkedFile:
         """
         Create descriptor for working with files in our format.
 
@@ -36,7 +43,12 @@ class ContactMatrixFacet(object):
         :param block_cache_size: Size of cache for dense blocks (each at most max_dense_size*max_dense_size*sizeof(dtype) bytes).
         :return: File descriptor.
         """
-        f: ChunkedFile = ChunkedFile(filepath, block_cache_size)
+        f: ChunkedFile = ChunkedFile(
+            filepath,
+            block_cache_size,
+            multithreading_pool_size=multithreading_pool_size,
+            mp_manager=mp_manager
+        )
         return f
 
     @staticmethod

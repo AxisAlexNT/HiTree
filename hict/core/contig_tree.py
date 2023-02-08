@@ -2,6 +2,7 @@ import copy
 import random
 import sys
 import threading
+import multiprocessing, multiprocessing.managers
 from typing import Dict, Optional, Tuple, List, Callable, NamedTuple
 
 from copy import deepcopy
@@ -204,7 +205,12 @@ class ContigTree:
 
     resolutions: np.ndarray
 
-    def __init__(self, resolutions_ndarray: np.ndarray, random_seed: Optional[int] = None) -> None:
+    def __init__(
+        self, 
+        resolutions_ndarray: np.ndarray,
+        random_seed: Optional[int] = None,
+        mp_manager: Optional[multiprocessing.managers.SyncManager] = None
+        ) -> None:
         super().__init__()
         if random_seed is not None:
             random.seed(random_seed)
@@ -216,7 +222,12 @@ class ContigTree:
         self.contig_id_to_name: Dict[int, str] = dict()
         self.resolutions: np.ndarray = np.hstack(
             (np.zeros(shape=(1,), dtype=np.int64), resolutions_ndarray))
-        self.root_lock = rwlock.RWLockWrite(threading.RLock)
+        self.mp_manager = mp_manager
+        if mp_manager is not None:
+            lock_factory = mp_manager.RLock
+        else:
+            lock_factory = threading.RLock
+        self.root_lock = rwlock.RWLockWrite(lock_factory=lock_factory)
 
     contig_id_to_node_in_tree: Dict[np.int64, Node] = dict()
 
@@ -781,7 +792,7 @@ class ContigTree:
                 (t_le is None) or (
                     t_le.get_sizes()[[1, 0, 2][units.value]][resolution]
                     >=
-                    max(0, min(total_assembly_length, end+1))
+                    max(0, min(total_assembly_length, end))
                 )
             ), "After splitting less-or-equal segment ends earlier than queried??"
             (t_l, t_seg) = self.split_node_by_length(
