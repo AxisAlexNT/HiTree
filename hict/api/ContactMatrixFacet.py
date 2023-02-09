@@ -223,10 +223,10 @@ class ContactMatrixFacet(object):
         # y0 = max(0, y0)
         # y1 = max(0, y1)
 
-        if x0 > x1:
-            x0, x1 = x1, x0
-        if y0 > y1:
-            y0, y1 = y1, y0
+        # if x0 > x1:
+        #     x0, x1 = x1, x0
+        # if y0 > y1:
+        #     y0, y1 = y1, y0
 
         if resolution not in f.resolutions:
             raise ContactMatrixFacet.IncorrectResolution()
@@ -262,7 +262,7 @@ class ContactMatrixFacet(object):
                 resolution,
                 x0, y0,
                 x1, y1,
-                exclude_hidden_contigs
+                exclude_hidden_contigs=(exclude_hidden_contigs or (units == QueryLengthUnit.PIXELS))
             )
 
         return submatrix_and_weights

@@ -47,13 +47,25 @@
             ],
             "justMyCode": true
         }, {
-            "name": "[win] Debug Compare with Cooler",
+            "name": "Debug Compare with Cooler",
             "type": "python",
             "request": "launch",
             "module": "pytest",
             "args": [
                 "-xvv",
+                "-n 4",
                 "tests/test_CompareWithCooler.py"
+            ],
+            "justMyCode": true
+        },{
+            "name": "Small Debug Compare with Cooler",
+            "type": "python",
+            "request": "launch",
+            "module": "pytest",
+            "args": [
+                "-xvv",
+                "-n 4",
+                "tests/test_CompareWithCooler.py::test_compare_small_square_queries_with_cooler_by_bins"
             ],
             "justMyCode": true
         },

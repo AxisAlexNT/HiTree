@@ -643,6 +643,8 @@ class ChunkedFile(object):
         result_atus: List[ATUDescriptor]
 
         query_length: np.int64 = end_px_excl - start_px_incl
+        if query_length <= 0:
+            return []
 
         if es.segment is None:
             assert query_length <= 0, "Query is not zero-length, but no ATUs were found?"
