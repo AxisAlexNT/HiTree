@@ -200,15 +200,15 @@ class ContigDescriptor(RecordClass):
         new_contig_length_at_resolution = frozendict(
             {**contig_length_at_resolution, **{np.int64(0): contig_length_bp}})
         return ContigDescriptor(
-            contig_id,
-            contig_name,
+            contig_id=contig_id,
+            contig_name=contig_name,
             # direction,
-            new_contig_length_at_resolution,
-            scaffold_id,
-            frozendict({**contig_presence_in_resolution, **
+            contig_length_at_resolution=new_contig_length_at_resolution,
+            scaffold_id=scaffold_id,
+            presence_in_resolution=frozendict({**contig_presence_in_resolution, **
                        {np.int64(0): ContigHideType.FORCED_SHOWN}}),
-            atus,
-            {
+            atus=atus,
+            atu_prefix_sum_length_bins={
                 resolution: np.cumsum(
                     tuple(
                         map(
