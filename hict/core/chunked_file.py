@@ -199,10 +199,11 @@ class ChunkedFile(object):
                 self.contig_tree.insert_at_position(
                     contig_descriptor,
                     self.contig_tree.get_node_count(),
-                    direction=contig_id_to_direction[contig_id]
+                    direction=contig_id_to_direction[contig_id],
+                    update_tree=False
                 )
-
-            self.restore_scaffolds(f)
+            self.contig_tree.update_tree()
+            self.restore_scaffolds(f) 
 
         self.state = ChunkedFile.FileState.OPENED
 

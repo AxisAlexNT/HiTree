@@ -652,7 +652,7 @@ class ContigTree:
     #         )
     #         return contig_raw_node.contig_descriptor, left_subsize_count
 
-    def insert_at_position(self, contig_descriptor: ContigDescriptor, index: np.int64, direction: ContigDirection):
+    def insert_at_position(self, contig_descriptor: ContigDescriptor, index: np.int64, direction: ContigDirection, update_tree: bool = True):
         new_node: ContigTree.Node = ContigTree.Node.make_new_node_from_descriptor(
             contig_descriptor,
             direction=direction
@@ -666,7 +666,8 @@ class ContigTree:
                 self.root.parent = None
             else:
                 self.root = new_node
-            self.update_tree()
+            if update_tree:
+                self.update_tree()
 
     def get_sizes(self) -> Tuple[Dict[np.int64, np.int64], np.int64, Dict[np.int64, np.int64]]:
         with self.root_lock.gen_rlock():
