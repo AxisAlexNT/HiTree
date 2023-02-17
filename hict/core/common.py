@@ -7,6 +7,8 @@ from frozendict import frozendict
 from recordclass import RecordClass
 from copy import deepcopy
 
+from HiCT_Library.hict.core.contig_tree import ContigTree
+
 
 class QueryLengthUnit(Enum):
     BASE_PAIRS = 0
@@ -32,8 +34,8 @@ class ContigHideType(Enum):
 
 
 class ScaffoldBorders(RecordClass):
-    start_contig_id: np.int64
-    end_contig_id: np.int64
+    start_contig_node: ContigTree.Node
+    end_contig_node: ContigTree.Node
 
 
 class StripeDescriptor(RecordClass):
@@ -175,7 +177,7 @@ class ContigDescriptor(RecordClass):
     contig_name: str
     # direction: ContigDirection
     contig_length_at_resolution: frozendict  # Dict[np.int64, np.int64]
-    scaffold_id: Optional[np.int64]
+    # scaffold_id: Optional[np.int64]
     presence_in_resolution: frozendict
     # TODO: Decide how mapping Contig -> ATU and ATU -> Stripe is organized by ATL
     # Should ATUs know their corresponding length in bins/bps?
@@ -192,7 +194,7 @@ class ContigDescriptor(RecordClass):
             contig_length_at_resolution: Dict[np.int64, np.int64],
             contig_presence_in_resolution: Dict[np.int64, ContigHideType],
             atus: Dict[np.int64, List[ATUDescriptor]],
-            scaffold_id: Optional[np.int64] = None
+            # scaffold_id: Optional[np.int64] = None
     ) -> 'ContigDescriptor':
         assert (
             0 not in contig_length_at_resolution.keys()
@@ -204,7 +206,7 @@ class ContigDescriptor(RecordClass):
             contig_name=contig_name,
             # direction,
             contig_length_at_resolution=new_contig_length_at_resolution,
-            scaffold_id=scaffold_id,
+            # scaffold_id=scaffold_id,
             presence_in_resolution=frozendict({**contig_presence_in_resolution, **
                        {np.int64(0): ContigHideType.FORCED_SHOWN}}),
             atus=atus,

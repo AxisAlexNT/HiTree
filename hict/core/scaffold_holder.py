@@ -70,9 +70,11 @@ class ScaffoldHolder(object):
             1 - scaffold_descriptor.scaffold_direction.value)
         new_scaffold_borders: Optional[ScaffoldBorders]
         if scaffold_descriptor.scaffold_borders is not None:
-            start_contig_id, end_contig_id = scaffold_descriptor.scaffold_borders
+            start_contig_node, end_contig_node = scaffold_descriptor.scaffold_borders
             new_scaffold_borders = ScaffoldBorders(
-                end_contig_id, start_contig_id)
+                end_contig_node,
+                start_contig_node
+            )
         else:
             new_scaffold_borders = None
         new_scaffold_descriptor: ScaffoldDescriptor = ScaffoldDescriptor(
@@ -85,7 +87,7 @@ class ScaffoldHolder(object):
         del self.scaffold_table[scaffold_id]
         self.scaffold_table[new_scaffold_descriptor.scaffold_id] = new_scaffold_descriptor
         if scaffold_descriptor.scaffold_borders is not None:
-            return start_contig_id, end_contig_id
+            return start_contig_node, end_contig_node
         else:
             return None
 

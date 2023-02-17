@@ -3,7 +3,8 @@ from enum import Enum
 from io import BytesIO
 from pathlib import Path
 from typing import Iterable, Set, Union
-import multiprocessing, multiprocessing.managers
+import multiprocessing
+import multiprocessing.managers
 import copy
 
 import h5py
@@ -203,7 +204,7 @@ class ChunkedFile(object):
                     update_tree=False
                 )
             self.contig_tree.update_tree()
-            self.restore_scaffolds(f) 
+            self.restore_scaffolds(f)
 
         self.state = ChunkedFile.FileState.OPENED
 
@@ -307,7 +308,7 @@ class ChunkedFile(object):
         resolution_to_contig_length_bins: Dict[np.int64, np.ndarray] = dict()
         # Resolution -> [ContigId -> ContigHideType]
         resolution_to_contig_hide_type: Dict[np.int64, np.ndarray] = dict()
-        #resolution_to_contig_atus: Dict[np.int64, List[List[ATUDescriptor]]] = dict()
+        # resolution_to_contig_atus: Dict[np.int64, List[List[ATUDescriptor]]] = dict()
         contig_id_to_atus: List[Dict[np.int64, List[ATUDescriptor]]] = [
             {resolution: [] for resolution in self.resolutions} for _ in range(contig_count)]
         for resolution in self.resolutions:
@@ -485,14 +486,19 @@ class ChunkedFile(object):
             end_col_excl: np.int64,
             exclude_hidden_contigs: bool
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        
-        total_assembly_length = self.contig_tree.get_sizes()[2 if exclude_hidden_contigs else 0][resolution]
-                
-        start_row_incl = constrain_coordinate(start_row_incl, 0, total_assembly_length)
-        end_row_excl = constrain_coordinate(end_row_excl, 0, total_assembly_length)
-        start_col_incl = constrain_coordinate(start_col_incl, 0, total_assembly_length)
-        end_col_excl = constrain_coordinate(end_col_excl, 0, total_assembly_length)
-        
+
+        total_assembly_length = self.contig_tree.get_sizes(
+        )[2 if exclude_hidden_contigs else 0][resolution]
+
+        start_row_incl = constrain_coordinate(
+            start_row_incl, 0, total_assembly_length)
+        end_row_excl = constrain_coordinate(
+            end_row_excl, 0, total_assembly_length)
+        start_col_incl = constrain_coordinate(
+            start_col_incl, 0, total_assembly_length)
+        end_col_excl = constrain_coordinate(
+            end_col_excl, 0, total_assembly_length)
+
         row_atus: List[ATUDescriptor] = self.get_atus_for_range(
             resolution,
             start_row_incl,
@@ -505,15 +511,15 @@ class ChunkedFile(object):
             end_col_excl,
             exclude_hidden_contigs
         )
-        
+
         query_rows_count = end_row_excl - start_row_incl
         query_cols_count = end_col_excl - start_col_incl
-        
+
         if start_row_incl < end_row_excl and 0 <= start_row_incl < total_assembly_length:
             assert (
                 len(row_atus) > 0
             ), "Query is correct but no rows were found??"
-            
+
         if start_col_incl < end_col_excl and 0 <= start_col_incl < total_assembly_length:
             assert (
                 len(col_atus) > 0
@@ -558,21 +564,21 @@ class ChunkedFile(object):
                 assert (
                     query_cols_count <= 0
                 ), "No column ATUs are present, but query is non-trivial for columns??"
-                row = np.zeros(shape=(row_atu.end_index_in_stripe_excl - row_atu.start_index_in_stripe_incl, 0))
+                row = np.zeros(shape=(
+                    row_atu.end_index_in_stripe_excl - row_atu.start_index_in_stripe_incl, 0))
             row_matrices.append(row)
-        
+
         if len(row_subweights) > 0:
             row_weights = np.hstack(row_subweights)
         else:
             row_weights = np.ones(shape=max(0, query_rows_count))
-        
+
         col_subweights = [t[2] for t in row_subtotals]
         if len(col_subweights) > 0:
             col_weights = np.hstack(col_subweights)
         else:
             col_weights = np.ones(shape=max(0, query_cols_count))
-            
-            
+
         if query_rows_count > 0 and query_cols_count > 0:
             result = np.vstack(row_matrices)
             assert (
@@ -582,7 +588,8 @@ class ChunkedFile(object):
                 len(col_subweights) > 0
             ), "No column weights were fetched, but query is non-trivial for columns??"
         else:
-            result = np.zeros(shape=(max(0, query_rows_count), max(0, query_cols_count)))  
+            result = np.zeros(
+                shape=(max(0, query_rows_count), max(0, query_cols_count)))
 
         assert (
             result.shape[0] == (end_row_excl-start_row_incl)
@@ -614,8 +621,10 @@ class ChunkedFile(object):
             col_atu
         )
 
-        row_weights = row_atu.stripe_descriptor.bin_weights[row_atu.start_index_in_stripe_incl:row_atu.end_index_in_stripe_excl]
-        col_weights = col_atu.stripe_descriptor.bin_weights[col_atu.start_index_in_stripe_incl:col_atu.end_index_in_stripe_excl]
+        row_weights = row_atu.stripe_descriptor.bin_weights[
+            row_atu.start_index_in_stripe_incl:row_atu.end_index_in_stripe_excl]
+        col_weights = col_atu.stripe_descriptor.bin_weights[
+            col_atu.start_index_in_stripe_incl:col_atu.end_index_in_stripe_excl]
         if row_atu.direction == ATUDirection.REVERSED:
             row_weights = np.flip(row_weights)
         if col_atu.direction == ATUDirection.REVERSED:
@@ -630,17 +639,20 @@ class ChunkedFile(object):
         end_px_excl: np.int64,
         exclude_hidden_contigs: bool,
     ) -> List[ATUDescriptor]:
-        total_assembly_length = self.contig_tree.get_sizes()[2 if exclude_hidden_contigs else 0][resolution]
-        start_px_incl = constrain_coordinate(start_px_incl, 0, total_assembly_length)
-        end_px_excl = constrain_coordinate(end_px_excl, 0, total_assembly_length)
-        
+        total_assembly_length = self.contig_tree.get_sizes(
+        )[2 if exclude_hidden_contigs else 0][resolution]
+        start_px_incl = constrain_coordinate(
+            start_px_incl, 0, total_assembly_length)
+        end_px_excl = constrain_coordinate(
+            end_px_excl, 0, total_assembly_length)
+
         es: ContigTree.ExposedSegment = self.contig_tree.expose_segment(
             resolution,
             1+start_px_incl,
             end_px_excl,
             units=QueryLengthUnit.PIXELS if exclude_hidden_contigs else QueryLengthUnit.BINS
         )
-        
+
         result_atus: List[ATUDescriptor]
 
         query_length: np.int64 = end_px_excl - start_px_incl
@@ -660,7 +672,7 @@ class ChunkedFile(object):
                 )[2 if exclude_hidden_contigs else 0][resolution]
             else:
                 less_size = np.int64(0)
-            
+
             delta_px_between_segment_first_contig_start_and_query_start: np.int64 = start_px_incl - less_size
             assert delta_px_between_segment_first_contig_start_and_query_start >= 0
 
@@ -729,7 +741,7 @@ class ChunkedFile(object):
                 delta_px_between_segment_first_contig_start_and_query_start -
                 length_of_atus_before_one_containing_start_px
             )
-            
+
             assert (
                 0 <= new_first_atu.start_index_in_stripe_incl < new_first_atu.stripe_descriptor.stripe_length_bins
             ), "Incorrect first ATU left border??"
@@ -744,7 +756,8 @@ class ChunkedFile(object):
             reversed_last_contig_atus_prefix_sum = last_contig_node.contig_descriptor.atu_prefix_sum_length_bins[
                 resolution].copy()
             if last_contig_node.direction == ContigDirection.FORWARD:
-                reversed_last_contig_atus_prefix_sum[:-1] = reversed_last_contig_atus_prefix_sum[-1] - np.flip(reversed_last_contig_atus_prefix_sum)[1:]
+                reversed_last_contig_atus_prefix_sum[:-1] = reversed_last_contig_atus_prefix_sum[-1] - np.flip(
+                    reversed_last_contig_atus_prefix_sum)[1:]
 
             right_offset_atus: np.int64 = np.searchsorted(
                 reversed_last_contig_atus_prefix_sum,
@@ -757,10 +770,10 @@ class ChunkedFile(object):
                 atus = atus[:-right_offset_atus]
                 deleted_atus_length = reversed_last_contig_atus_prefix_sum[right_offset_atus-1]
 
-
             old_last_atu = atus[-1]
             new_last_atu = old_last_atu.clone()
-            new_last_atu.end_index_in_stripe_excl += (deleted_atus_length + delta_between_right_px_and_exposed_segment)
+            new_last_atu.end_index_in_stripe_excl += (
+                deleted_atus_length + delta_between_right_px_and_exposed_segment)
             assert (
                 new_last_atu.stripe_descriptor.stripe_length_bins >= new_last_atu.end_index_in_stripe_excl > new_last_atu.start_index_in_stripe_incl
             ), "Incorrect ATU right border??"
@@ -770,7 +783,7 @@ class ChunkedFile(object):
                 lambda atu: atu.start_index_in_stripe_incl < atu.end_index_in_stripe_excl,
                 atus
             )), "Incorrect ATUs before reduce??"
-            
+
             total_atu_length = sum(
                 map(
                     lambda atu: atu.end_index_in_stripe_excl -
@@ -838,12 +851,12 @@ class ChunkedFile(object):
             queried_start_contig_id
             if queried_start_contig_scaffold_id is None
             else self.scaffold_holder.get_scaffold_by_id(
-                queried_start_contig_scaffold_id).scaffold_borders.start_contig_id
+                queried_start_contig_scaffold_id).scaffold_borders.start_contig_node
         )
         end_contig_id: np.int64 = (
             queried_end_contig_id
             if queried_end_contig_scaffold_id is None
-            else self.scaffold_holder.get_scaffold_by_id(queried_end_contig_scaffold_id).scaffold_borders.end_contig_id
+            else self.scaffold_holder.get_scaffold_by_id(queried_end_contig_scaffold_id).scaffold_borders.end_contig_node
         )
 
         (
@@ -912,12 +925,180 @@ class ChunkedFile(object):
             queried_start_contig_id
             if queried_start_contig_scaffold_id is None
             else self.scaffold_holder.get_scaffold_by_id(
-                queried_start_contig_scaffold_id).scaffold_borders.start_contig_id
+                queried_start_contig_scaffold_id).scaffold_borders.start_contig_node
         )
         end_contig_id: np.int64 = (
             queried_end_contig_id
             if queried_end_contig_scaffold_id is None
-            else self.scaffold_holder.get_scaffold_by_id(queried_end_contig_scaffold_id).scaffold_borders.end_contig_id
+            else self.scaffold_holder.get_scaffold_by_id(queried_end_contig_scaffold_id).scaffold_borders.end_contig_node
+        )
+
+        (
+            _,
+            borders_bins_start,
+            _,
+            start_index
+        ) = self.contig_tree.get_contig_location(start_contig_id)
+        (
+            _,
+            borders_bins_end,
+            _,
+            end_index
+        ) = self.contig_tree.get_contig_location(end_contig_id)
+
+        if end_index < start_index:
+            raise Exception(
+                f"After selection was extended, its end contig with ID={end_contig_id} and order {end_index} precedes start contig with ID={start_contig_id} and order={start_index}")
+
+        (previous_contig_scaffold,
+         target_contig_scaffold,
+         next_contig_scaffold,
+         scaffold_starts_at_target,
+         internal_scaffold_contig,
+         scaffold_ends_at_target) = self.check_scaffold_borders_at_position(target_start_order)
+
+        target_scaffold_id: Optional[np.int64] = None
+
+        if internal_scaffold_contig:
+            target_scaffold_id = target_contig_scaffold.scaffold_id
+
+        ct_exposed_segment = self.contig_tree.expose_segment_by_count(
+            start_index, end_index)
+        if ct_exposed_segment.segment is not None:
+            if target_scaffold_id is not None:
+                ct_exposed_segment.segment.contig_descriptor.scaffold_id = target_scaffold_id
+                ct_exposed_segment.segment.needs_updating_scaffold_id_in_subtree = True
+        tmp_tree: Optional[ContigTree.Node] = self.contig_tree.merge_nodes(
+            ct_exposed_segment.less, ct_exposed_segment.greater)
+        l, r = self.contig_tree.split_node_by_count(
+            tmp_tree, target_start_order)
+        leftLength: Dict[np.int64, np.int64]
+        if l is not None:
+            leftLength = l.get_sizes()[0]
+        else:
+            leftLength = dict().fromkeys(self.resolutions, 0)
+        self.contig_tree.commit_exposed_segment(
+            ContigTree.ExposedSegment(l, ct_exposed_segment.segment, r))
+
+        for resolution in self.resolutions:
+            mt = self.matrix_trees[resolution]
+            (start_bins, end_bins) = (
+                borders_bins_start[resolution][0], borders_bins_end[resolution][1])
+            mt.move_stripes(1+start_bins, end_bins, leftLength[resolution])
+        self.clear_caches()
+
+    def reverse_selection_range_bp(self, queried_start_bp: np.int64, queried_end_bp: np.int64) -> None:
+        assert self.state == ChunkedFile.FileState.OPENED, "Operation requires file to be opened"
+
+        assert (
+            queried_start_bp < queried_end_bp
+        ), "Left contig border should be less than right"
+
+        with self.contig_tree.root_lock.gen_rlock():
+            reqested_segment: ContigTree.ExposedSegment = self.contig_tree.expose_segment(
+                resolution=resolution,
+                start=queried_start_bp,
+                end=queried_end_bp-1,
+                units=QueryLengthUnit.BASE_PAIRS
+            )
+            
+            if reqested_segment.segment is None:
+                return
+            
+            left_ctg = reqested_segment.segment.leftmost()
+            right_ctg = reqested_segment.segment.rightmost()
+            
+            assert left_ctg is not None
+            assert right_ctg is not None
+            
+            queried_start_contig_scaffold_id = left_ctg.scaffold_id
+            queried_end_contig_scaffold_id = right_ctg.scaffold_id
+            
+            
+        start_contig_id: np.int64 = (
+            queried_start_contig_id
+            if queried_start_contig_scaffold_id is None
+            else self.scaffold_holder.get_scaffold_by_id(
+                queried_start_contig_scaffold_id).scaffold_borders.start_contig_node
+        )
+        end_contig_id: np.int64 = (
+            queried_end_contig_id
+            if queried_end_contig_scaffold_id is None
+            else self.scaffold_holder.get_scaffold_by_id(queried_end_contig_scaffold_id).scaffold_borders.end_contig_node
+        )
+
+        (
+            _,
+            borders_bins_start,
+            _,
+            start_index
+        ) = self.contig_tree.get_contig_location(start_contig_id)
+        (
+            _,
+            borders_bins_end,
+            _,
+            end_index
+        ) = self.contig_tree.get_contig_location(end_contig_id)
+
+        if end_index < start_index:
+            raise Exception(
+                f"After selection was extended, its end contig with ID={end_contig_id} and order {end_index} precedes start contig with ID={start_contig_id} and order={start_index}")
+
+        ct_exposed_segment = self.contig_tree.expose_segment_by_count(
+            start_index, end_index)
+        scaffold_ids_in_subtree: Set[np.int64] = set()
+        if ct_exposed_segment.segment is not None:
+            ct_exposed_segment.segment.reverse_subtree()
+
+            def traverse_fn(n: ContigTree.Node):
+                if n.contig_descriptor.scaffold_id is not None:
+                    scaffold_ids_in_subtree.add(
+                        n.contig_descriptor.scaffold_id)
+
+            ContigTree.traverse_node(ct_exposed_segment.segment, traverse_fn)
+        self.contig_tree.commit_exposed_segment(ct_exposed_segment)
+
+        for scaffold_id in scaffold_ids_in_subtree:
+            self.scaffold_holder.reverse_scaffold(scaffold_id)
+
+        for resolution in self.resolutions:
+            mt = self.matrix_trees[resolution]
+            (start_bins, end_bins) = (
+                borders_bins_start[resolution][0], borders_bins_end[resolution][1])
+            mt.reverse_direction_in_bins(1 + start_bins, end_bins)
+        self.clear_caches()
+
+    def move_selection_range_bp(self, queried_start_contig_id: np.int64, queried_end_contig_id: np.int64,
+                                target_start_order: np.int64) -> None:
+        assert self.state == ChunkedFile.FileState.OPENED, "Operation requires file to be opened"
+
+        queried_start_contig_order: np.int64 = self.contig_tree.get_contig_order(
+            queried_start_contig_id)[1]
+        queried_end_contig_order: np.int64 = self.contig_tree.get_contig_order(
+            queried_end_contig_id)[1]
+
+        if queried_end_contig_order < queried_start_contig_order:
+            (queried_start_contig_id, queried_start_contig_order, queried_end_contig_id, queried_end_contig_order) = (
+                queried_end_contig_id, queried_end_contig_order, queried_start_contig_id, queried_start_contig_order)
+
+        queried_start_node: ContigTree.Node = self.contig_tree.get_updated_contig_node_by_contig_id(
+            queried_start_contig_id)
+        queried_end_node: ContigTree.Node = self.contig_tree.get_updated_contig_node_by_contig_id(
+            queried_end_contig_id)
+
+        queried_start_contig_scaffold_id = queried_start_node.contig_descriptor.scaffold_id
+        queried_end_contig_scaffold_id = queried_end_node.contig_descriptor.scaffold_id
+
+        start_contig_id: np.int64 = (
+            queried_start_contig_id
+            if queried_start_contig_scaffold_id is None
+            else self.scaffold_holder.get_scaffold_by_id(
+                queried_start_contig_scaffold_id).scaffold_borders.start_contig_node
+        )
+        end_contig_id: np.int64 = (
+            queried_end_contig_id
+            if queried_end_contig_scaffold_id is None
+            else self.scaffold_holder.get_scaffold_by_id(queried_end_contig_scaffold_id).scaffold_borders.end_contig_node
         )
 
         (
@@ -1020,10 +1201,10 @@ class ChunkedFile(object):
             target_scaffold_descriptor = self.scaffold_holder.get_scaffold_by_id(
                 target_scaffold_id)
             assert existing_contig_id is not None, "Target scaffold id is determined without contig?"
-            if existing_contig_id == target_scaffold_descriptor.scaffold_borders.start_contig_id:
+            if existing_contig_id == target_scaffold_descriptor.scaffold_borders.start_contig_node:
                 moving_to_the_left_border = True
                 moving_to_scaffold_border = True
-            elif existing_contig_id == target_scaffold_descriptor.scaffold_borders.end_contig_id:
+            elif existing_contig_id == target_scaffold_descriptor.scaffold_borders.end_contig_node:
                 moving_to_scaffold_border = True
         return moving_to_scaffold_border, moving_to_the_left_border, target_scaffold_descriptor
 
@@ -1112,9 +1293,9 @@ class ChunkedFile(object):
             scaffold_borders: Optional[ScaffoldBorders] = scaffold_descriptor.scaffold_borders
             if scaffold_borders is not None:
                 start_contig_descriptor, _, _, _ = self.get_contig_location(
-                    scaffold_borders.start_contig_id)
+                    scaffold_borders.start_contig_node)
                 end_contig_descriptor, _, _, _ = self.get_contig_location(
-                    scaffold_borders.end_contig_id)
+                    scaffold_borders.end_contig_node)
                 start_scaffold_id: Optional[np.int64] = start_contig_descriptor.scaffold_id
                 end_scaffold_id: Optional[np.int64] = end_contig_descriptor.scaffold_id
                 assert (
@@ -1149,12 +1330,12 @@ class ChunkedFile(object):
             queried_start_contig_id
             if queried_start_contig_scaffold_id is None
             else self.scaffold_holder.get_scaffold_by_id(
-                queried_start_contig_scaffold_id).scaffold_borders.start_contig_id
+                queried_start_contig_scaffold_id).scaffold_borders.start_contig_node
         )
         end_contig_id: np.int64 = (
             queried_end_contig_id
             if queried_end_contig_scaffold_id is None
-            else self.scaffold_holder.get_scaffold_by_id(queried_end_contig_scaffold_id).scaffold_borders.end_contig_id
+            else self.scaffold_holder.get_scaffold_by_id(queried_end_contig_scaffold_id).scaffold_borders.end_contig_node
         )
 
         new_scaffold: ScaffoldDescriptor = self.scaffold_holder.create_scaffold(
@@ -1191,12 +1372,12 @@ class ChunkedFile(object):
             queried_start_contig_id
             if queried_start_contig_scaffold_id is None
             else self.scaffold_holder.get_scaffold_by_id(
-                queried_start_contig_scaffold_id).scaffold_borders.start_contig_id
+                queried_start_contig_scaffold_id).scaffold_borders.start_contig_node
         )
         end_contig_id: np.int64 = (
             queried_end_contig_id
             if queried_end_contig_scaffold_id is None
-            else self.scaffold_holder.get_scaffold_by_id(queried_end_contig_scaffold_id).scaffold_borders.end_contig_id
+            else self.scaffold_holder.get_scaffold_by_id(queried_end_contig_scaffold_id).scaffold_borders.end_contig_node
         )
 
         _, start_contig_order = self.contig_tree.get_contig_order(
@@ -1510,8 +1691,8 @@ class ChunkedFile(object):
                 old_id)
             scaffold_names.append(scaffold_descriptor.scaffold_name)
             if scaffold_descriptor.scaffold_borders is not None:
-                scaffold_starts[new_id] = scaffold_descriptor.scaffold_borders.start_contig_id
-                scaffold_ends[new_id] = scaffold_descriptor.scaffold_borders.end_contig_id
+                scaffold_starts[new_id] = scaffold_descriptor.scaffold_borders.start_contig_node
+                scaffold_ends[new_id] = scaffold_descriptor.scaffold_borders.end_contig_node
             else:
                 scaffold_starts[new_id], scaffold_ends[new_id] = -1, -1
             scaffold_directions[new_id] = scaffold_descriptor.scaffold_direction.value

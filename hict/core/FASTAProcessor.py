@@ -166,10 +166,10 @@ class FASTAProcessor(object):
                     finalization_record[1][-1].contig_id
                 ]
                 assert (
-                    scaffold_descriptor.scaffold_borders.start_contig_id in bordering_contig_id
+                    scaffold_descriptor.scaffold_borders.start_contig_node in bordering_contig_id
                 ), "Scaffold starting contig id must be in scaffold record"
                 assert (
-                    scaffold_descriptor.scaffold_borders.end_contig_id in bordering_contig_id
+                    scaffold_descriptor.scaffold_borders.end_contig_node in bordering_contig_id
                 ), "Scaffold ending contig id must be in scaffold record"
                 scaffold_record_str: str = self.get_fasta_record_for_scaffold(
                     scaffold_descriptor,

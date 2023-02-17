@@ -42,6 +42,7 @@ class ContigTree:
         needs_updating_scaffold_id_in_subtree: bool
         parent: Optional['ContigTree.Node']
         direction: ContigDirection
+        scaffold_id: Optional[np.int64]
 
         def __init__(
             self,
@@ -55,7 +56,8 @@ class ContigTree:
             needs_changing_direction: bool,
             needs_updating_scaffold_id_in_subtree: bool,
             parent: Optional['ContigTree.Node'],
-            direction: ContigDirection
+            direction: ContigDirection,
+            scaffold_id: Optional[np.int64]
         ) -> None:
             super().__init__()
             self.contig_descriptor: ContigDescriptor = contig_descriptor
@@ -73,11 +75,13 @@ class ContigTree:
             self.needs_updating_scaffold_id_in_subtree: bool = needs_updating_scaffold_id_in_subtree
             self.parent: Optional['ContigTree.Node'] = parent
             self.direction = direction
+            self.scaffold_id = scaffold_id
 
         @staticmethod
         def make_new_node_from_descriptor(
             contig_descriptor: ContigDescriptor,
             direction: ContigDirection,
+            scaffold_id: Optional[np.int64]
         ) -> 'ContigTree.Node':
             subtree_length_px = dict()
             for resolution, present in contig_descriptor.presence_in_resolution.items():
@@ -98,7 +102,8 @@ class ContigTree:
                 subtree_length_px=subtree_length_px,
                 needs_changing_direction=False,
                 needs_updating_scaffold_id_in_subtree=False,
-                direction=direction
+                direction=direction,
+                scaffold_id=scaffold_id
             )
 
         @staticmethod
@@ -115,7 +120,8 @@ class ContigTree:
                 needs_updating_scaffold_id_in_subtree=deepcopy(
                     n.needs_updating_scaffold_id_in_subtree),
                 y_priority=deepcopy(n.y_priority),
-                direction=n.direction
+                direction=n.direction,
+                scaffold_id=n.scaffold_id
             )
 
         def clone(self) -> 'ContigTree.Node':
@@ -169,12 +175,12 @@ class ContigTree:
             if new_node.needs_updating_scaffold_id_in_subtree:
                 if new_node.left is not None:
                     new_node.left = new_node.left.clone()
-                    new_node.left.contig_descriptor.scaffold_id = new_node.contig_descriptor.scaffold_id
+                    new_node.left.scaffold_id = new_node.scaffold_id
                     new_node.left.needs_updating_scaffold_id_in_subtree = True
                     new_node.left.parent = new_node
                 if new_node.right is not None:
                     new_node.right = new_node.right.clone()
-                    new_node.right.contig_descriptor.scaffold_id = new_node.contig_descriptor.scaffold_id
+                    new_node.right.scaffold_id = new_node.scaffold_id
                     new_node.right.needs_updating_scaffold_id_in_subtree = True
                     new_node.right.parent = new_node
                 new_node.needs_updating_scaffold_id_in_subtree = False
