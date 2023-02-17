@@ -851,12 +851,12 @@ class ChunkedFile(object):
             queried_start_contig_id
             if queried_start_contig_scaffold_id is None
             else self.scaffold_holder.get_scaffold_by_id(
-                queried_start_contig_scaffold_id).scaffold_borders.start_contig_node
+                queried_start_contig_scaffold_id).scaffold_borders.start_contig_id
         )
         end_contig_id: np.int64 = (
             queried_end_contig_id
             if queried_end_contig_scaffold_id is None
-            else self.scaffold_holder.get_scaffold_by_id(queried_end_contig_scaffold_id).scaffold_borders.end_contig_node
+            else self.scaffold_holder.get_scaffold_by_id(queried_end_contig_scaffold_id).scaffold_borders.end_contig_id
         )
 
         (
@@ -925,12 +925,12 @@ class ChunkedFile(object):
             queried_start_contig_id
             if queried_start_contig_scaffold_id is None
             else self.scaffold_holder.get_scaffold_by_id(
-                queried_start_contig_scaffold_id).scaffold_borders.start_contig_node
+                queried_start_contig_scaffold_id).scaffold_borders.start_contig_id
         )
         end_contig_id: np.int64 = (
             queried_end_contig_id
             if queried_end_contig_scaffold_id is None
-            else self.scaffold_holder.get_scaffold_by_id(queried_end_contig_scaffold_id).scaffold_borders.end_contig_node
+            else self.scaffold_holder.get_scaffold_by_id(queried_end_contig_scaffold_id).scaffold_borders.end_contig_id
         )
 
         (
@@ -1015,17 +1015,19 @@ class ChunkedFile(object):
             queried_end_contig_scaffold_id = right_ctg.scaffold_id
             
             
-        start_contig_id: np.int64 = (
-            queried_start_contig_id
-            if queried_start_contig_scaffold_id is None
-            else self.scaffold_holder.get_scaffold_by_id(
-                queried_start_contig_scaffold_id).scaffold_borders.start_contig_node
-        )
-        end_contig_id: np.int64 = (
-            queried_end_contig_id
-            if queried_end_contig_scaffold_id is None
-            else self.scaffold_holder.get_scaffold_by_id(queried_end_contig_scaffold_id).scaffold_borders.end_contig_node
-        )
+            start_contig: np.int64 = (
+                left_ctg
+                if queried_start_contig_scaffold_id is None
+                else self.contig_tree.contig_id_to_node_in_tree[self.scaffold_holder.get_scaffold_by_id(
+                    queried_start_contig_scaffold_id).scaffold_borders.start_contig_id]
+            )
+            
+            end_contig: np.int64 = (
+                right_ctg
+                if queried_end_contig_scaffold_id is None
+                else self.contig_tree.contig_id_to_node_in_tree[self.scaffold_holder.get_scaffold_by_id(
+                    queried_end_contig_scaffold_id).scaffold_borders.end_contig_id]
+            )
 
         (
             _,
@@ -1093,12 +1095,12 @@ class ChunkedFile(object):
             queried_start_contig_id
             if queried_start_contig_scaffold_id is None
             else self.scaffold_holder.get_scaffold_by_id(
-                queried_start_contig_scaffold_id).scaffold_borders.start_contig_node
+                queried_start_contig_scaffold_id).scaffold_borders.start_contig_id
         )
         end_contig_id: np.int64 = (
             queried_end_contig_id
             if queried_end_contig_scaffold_id is None
-            else self.scaffold_holder.get_scaffold_by_id(queried_end_contig_scaffold_id).scaffold_borders.end_contig_node
+            else self.scaffold_holder.get_scaffold_by_id(queried_end_contig_scaffold_id).scaffold_borders.end_contig_id
         )
 
         (
@@ -1201,10 +1203,10 @@ class ChunkedFile(object):
             target_scaffold_descriptor = self.scaffold_holder.get_scaffold_by_id(
                 target_scaffold_id)
             assert existing_contig_id is not None, "Target scaffold id is determined without contig?"
-            if existing_contig_id == target_scaffold_descriptor.scaffold_borders.start_contig_node:
+            if existing_contig_id == target_scaffold_descriptor.scaffold_borders.start_contig_id:
                 moving_to_the_left_border = True
                 moving_to_scaffold_border = True
-            elif existing_contig_id == target_scaffold_descriptor.scaffold_borders.end_contig_node:
+            elif existing_contig_id == target_scaffold_descriptor.scaffold_borders.end_contig_id:
                 moving_to_scaffold_border = True
         return moving_to_scaffold_border, moving_to_the_left_border, target_scaffold_descriptor
 
@@ -1293,9 +1295,9 @@ class ChunkedFile(object):
             scaffold_borders: Optional[ScaffoldBorders] = scaffold_descriptor.scaffold_borders
             if scaffold_borders is not None:
                 start_contig_descriptor, _, _, _ = self.get_contig_location(
-                    scaffold_borders.start_contig_node)
+                    scaffold_borders.start_contig_id)
                 end_contig_descriptor, _, _, _ = self.get_contig_location(
-                    scaffold_borders.end_contig_node)
+                    scaffold_borders.end_contig_id)
                 start_scaffold_id: Optional[np.int64] = start_contig_descriptor.scaffold_id
                 end_scaffold_id: Optional[np.int64] = end_contig_descriptor.scaffold_id
                 assert (
@@ -1330,12 +1332,12 @@ class ChunkedFile(object):
             queried_start_contig_id
             if queried_start_contig_scaffold_id is None
             else self.scaffold_holder.get_scaffold_by_id(
-                queried_start_contig_scaffold_id).scaffold_borders.start_contig_node
+                queried_start_contig_scaffold_id).scaffold_borders.start_contig_id
         )
         end_contig_id: np.int64 = (
             queried_end_contig_id
             if queried_end_contig_scaffold_id is None
-            else self.scaffold_holder.get_scaffold_by_id(queried_end_contig_scaffold_id).scaffold_borders.end_contig_node
+            else self.scaffold_holder.get_scaffold_by_id(queried_end_contig_scaffold_id).scaffold_borders.end_contig_id
         )
 
         new_scaffold: ScaffoldDescriptor = self.scaffold_holder.create_scaffold(
@@ -1372,12 +1374,12 @@ class ChunkedFile(object):
             queried_start_contig_id
             if queried_start_contig_scaffold_id is None
             else self.scaffold_holder.get_scaffold_by_id(
-                queried_start_contig_scaffold_id).scaffold_borders.start_contig_node
+                queried_start_contig_scaffold_id).scaffold_borders.start_contig_id
         )
         end_contig_id: np.int64 = (
             queried_end_contig_id
             if queried_end_contig_scaffold_id is None
-            else self.scaffold_holder.get_scaffold_by_id(queried_end_contig_scaffold_id).scaffold_borders.end_contig_node
+            else self.scaffold_holder.get_scaffold_by_id(queried_end_contig_scaffold_id).scaffold_borders.end_contig_id
         )
 
         _, start_contig_order = self.contig_tree.get_contig_order(
@@ -1691,8 +1693,8 @@ class ChunkedFile(object):
                 old_id)
             scaffold_names.append(scaffold_descriptor.scaffold_name)
             if scaffold_descriptor.scaffold_borders is not None:
-                scaffold_starts[new_id] = scaffold_descriptor.scaffold_borders.start_contig_node
-                scaffold_ends[new_id] = scaffold_descriptor.scaffold_borders.end_contig_node
+                scaffold_starts[new_id] = scaffold_descriptor.scaffold_borders.start_contig_id
+                scaffold_ends[new_id] = scaffold_descriptor.scaffold_borders.end_contig_id
             else:
                 scaffold_starts[new_id], scaffold_ends[new_id] = -1, -1
             scaffold_directions[new_id] = scaffold_descriptor.scaffold_direction.value

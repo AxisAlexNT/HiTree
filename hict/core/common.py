@@ -7,8 +7,6 @@ from frozendict import frozendict
 from recordclass import RecordClass
 from copy import deepcopy
 
-from HiCT_Library.hict.core.contig_tree import ContigTree
-
 
 class QueryLengthUnit(Enum):
     BASE_PAIRS = 0
@@ -34,8 +32,8 @@ class ContigHideType(Enum):
 
 
 class ScaffoldBorders(RecordClass):
-    start_contig_node: ContigTree.Node
-    end_contig_node: ContigTree.Node
+    start_contig_id: np.int64
+    end_contig_id: np.int64
 
 
 class StripeDescriptor(RecordClass):
