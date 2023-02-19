@@ -16,7 +16,7 @@ from scipy.sparse import coo_array, csr_array, csc_array
 
 from hict.core.AGPProcessor import *
 from hict.core.FASTAProcessor import FASTAProcessor
-from hict.core.common import ATUDescriptor, ATUDirection, StripeDescriptor, ContigDescriptor, ScaffoldDescriptor, ScaffoldBorders, \
+from hict.core.common import ATUDescriptor, ATUDirection, LocationInAssembly, StripeDescriptor, ContigDescriptor, ScaffoldDescriptor, ScaffoldBorders, \
     ScaffoldDirection, FinalizeRecordType, ContigHideType, QueryLengthUnit
 from hict.core.contig_tree import ContigTree
 from hict.core.scaffold_holder import ScaffoldHolder
@@ -994,7 +994,7 @@ class ChunkedFile(object):
             queried_start_bp < queried_end_bp
         ), "Left contig border should be less than right"
 
-        with self.contig_tree.root_lock.gen_rlock():
+        with self.contig_tree.root_lock.gen_wlock():
             reqested_segment: ContigTree.ExposedSegment = self.contig_tree.expose_segment(
                 resolution=resolution,
                 start=queried_start_bp,
@@ -1015,19 +1015,27 @@ class ChunkedFile(object):
             queried_end_contig_scaffold_id = right_ctg.scaffold_id
             
             
-            start_contig: np.int64 = (
+            start_contig: ContigTree.Node = (
                 left_ctg
                 if queried_start_contig_scaffold_id is None
                 else self.contig_tree.contig_id_to_node_in_tree[self.scaffold_holder.get_scaffold_by_id(
                     queried_start_contig_scaffold_id).scaffold_borders.start_contig_id]
             )
             
-            end_contig: np.int64 = (
+            end_contig: ContigTree.Node = (
                 right_ctg
                 if queried_end_contig_scaffold_id is None
                 else self.contig_tree.contig_id_to_node_in_tree[self.scaffold_holder.get_scaffold_by_id(
                     queried_end_contig_scaffold_id).scaffold_borders.end_contig_id]
             )
+                        
+            start_contig_location: LocationInAssembly = self.contig_tree.contig_id_to_location_in_assembly[
+                start_contig.contig_descriptor.contig_id
+            ]
+            
+            end_contig_location: LocationInAssembly = self.contig_tree.contig_id_to_location_in_assembly[
+                end_contig.contig_descriptor.contig_id
+            ]
 
         (
             _,
