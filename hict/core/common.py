@@ -1,6 +1,6 @@
 from enum import Enum
 import functools
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, NamedTuple, Optional, Tuple
 
 import numpy as np
 from frozendict import frozendict
@@ -34,6 +34,54 @@ class ContigHideType(Enum):
 class ScaffoldBorders(RecordClass):
     start_contig_id: np.int64
     end_contig_id: np.int64
+
+
+class LocationInAssembly(NamedTuple):
+    order: np.int64
+    start_bp: np.int64
+    start_bins: Dict[np.int64, np.int64]
+    start_px: Dict[np.int64, np.int64]
+
+    @staticmethod
+    def sum(l1: 'LocationInAssembly', l2: 'LocationInAssembly') -> 'LocationInAssembly':
+        return LocationInAssembly(
+            order=l1.order+l2.order,
+            start_bp=l1.start_bp+l2.start_bp,
+            start_bins={
+                res: l1.start_bins[res]+l2.start_bins[res]
+                for res in l1.start_bins.keys()
+            },
+            start_px={
+                res: l1.start_px[res]+l2.start_px[res]
+                for res in l1.start_px.keys()
+            },
+        )
+
+    @staticmethod
+    def add_contig(l: 'LocationInAssembly', ctg: 'ContigDescriptor') -> 'LocationInAssembly':
+        return l.shifted_by(
+            LocationInAssembly(
+                order=np.int64(1),
+                start_bp=ctg.contig_length_at_resolution[0],
+                start_bins=ctg.contig_length_at_resolution,
+                start_px={
+                    res: (
+                        ctg.contig_length_at_resolution[res]
+                        if ctg.presence_in_resolution[res] in (
+                            ContigHideType.AUTO_SHOWN,
+                            ContigHideType.FORCED_SHOWN,
+                        ) else np.int64(0)
+                    )
+                    for res in l.start_px.keys()
+                }
+            )
+        )
+
+    def shifted_by(self, delta: 'LocationInAssembly') -> 'LocationInAssembly':
+        return LocationInAssembly.sum(self, delta)
+
+    def shifted_by_contig(self, ctg: 'ContigDescriptor') -> 'LocationInAssembly':
+        return LocationInAssembly.add_contig(self, ctg)
 
 
 class StripeDescriptor(RecordClass):
@@ -206,7 +254,7 @@ class ContigDescriptor(RecordClass):
             contig_length_at_resolution=new_contig_length_at_resolution,
             # scaffold_id=scaffold_id,
             presence_in_resolution=frozendict({**contig_presence_in_resolution, **
-                       {np.int64(0): ContigHideType.FORCED_SHOWN}}),
+                                               {np.int64(0): ContigHideType.FORCED_SHOWN}}),
             atus=atus,
             atu_prefix_sum_length_bins={
                 resolution: np.cumsum(

@@ -10,7 +10,7 @@ from copy import deepcopy
 
 import numpy as np
 
-from hict.core.common import ContigDirection, ContigDescriptor, QueryLengthUnit, ContigHideType
+from hict.core.common import ContigDirection, ContigDescriptor, LocationInAssembly, QueryLengthUnit, ContigHideType
 
 from readerwriterlock import rwlock
 
@@ -212,6 +212,12 @@ class ContigTree:
 
     resolutions: np.ndarray
 
+    contig_id_to_node_in_tree: Dict[np.int64, Node] = dict()
+
+    contig_id_to_location_in_assembly: Dict[np.int64,
+                                            LocationInAssembly] = dict()
+    trivial_location_in_assembly: LocationInAssembly
+
     def __init__(
         self,
         resolutions_ndarray: np.ndarray,
@@ -235,8 +241,12 @@ class ContigTree:
         else:
             lock_factory = threading.RLock
         self.root_lock = rwlock.RWLockWrite(lock_factory=lock_factory)
-
-    contig_id_to_node_in_tree: Dict[np.int64, Node] = dict()
+        self.trivial_location_in_assembly = LocationInAssembly(
+            order=np.int64(0),
+            start_bp=np.int64(0),
+            start_bins=dict.fromkeys(resolutions_ndarray, np.int64(0)),
+            start_px=dict.fromkeys(resolutions_ndarray, np.int64(0))
+        )
 
     def split_node_by_count(self, t: Optional[Node], k: np.int64) -> Tuple[Optional[Node], Optional[Node]]:
         if t is None:
@@ -816,12 +826,17 @@ class ContigTree:
         f(new_t)
         ContigTree.traverse_node(new_t.right, f)
 
-    def update_subtree_state(self, t: Optional[Node]) -> Optional[Node]:
+    def update_subtree_state(self, t: Optional[Node], delta_position: LocationInAssembly) -> Tuple[Optional[Node], LocationInAssembly]:
         if t is None:
-            return None
+            return None, delta_position
         new_t = t.push()
-        new_l = ContigTree.update_subtree_state(new_t.left)
-        new_r = ContigTree.update_subtree_state(new_t.right)
+        new_l, current_contig_location = self.update_subtree_state(
+            new_t.left, delta_position)
+        
+        self.contig_id_to_location_in_assembly[t.contig_descriptor.contig_id] = current_contig_location
+        next_contig_location = current_contig_location.shifted_by_contig(t.contig_descriptor)
+
+        new_r, new_r_pos = self.update_subtree_state(new_t.right, next_contig_location)
         new_t.left = new_l
         new_t.right = new_r
         new_new_t = new_t.update_sizes()
@@ -830,12 +845,12 @@ class ContigTree:
         if new_r is not None:
             new_r.parent = new_new_t
         self.contig_id_to_node_in_tree[new_new_t.contig_descriptor.contig_id] = new_new_t
-        return new_new_t
+        return new_new_t, new_r_pos
 
     def update_tree(self):
         with self.root_lock.gen_wlock():
             old_root = self.root
-            new_root = self.update_subtree_state(old_root)
+            new_root, _ = self.update_subtree_state(old_root, self.trivial_location_in_assembly)
             self.root = new_root
 
     @staticmethod
