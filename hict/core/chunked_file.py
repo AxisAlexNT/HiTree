@@ -16,7 +16,7 @@ from scipy.sparse import coo_array, csr_array, csc_array
 
 from hict.core.AGPProcessor import *
 from hict.core.FASTAProcessor import FASTAProcessor
-from hict.core.common import ATUDescriptor, ATUDirection, LocationInAssembly, StripeDescriptor, ContigDescriptor, ScaffoldDescriptor, ScaffoldBorders, \
+from hict.core.common import ATUDescriptor, ATUDirection, StripeDescriptor, ContigDescriptor, ScaffoldDescriptor, ScaffoldBorders, \
     ScaffoldDirection, FinalizeRecordType, ContigHideType, QueryLengthUnit
 from hict.core.contig_tree import ContigTree
 from hict.core.scaffold_holder import ScaffoldHolder
@@ -1028,14 +1028,6 @@ class ChunkedFile(object):
                 else self.contig_tree.contig_id_to_node_in_tree[self.scaffold_holder.get_scaffold_by_id(
                     queried_end_contig_scaffold_id).scaffold_borders.end_contig_id]
             )
-                        
-            start_contig_location: LocationInAssembly = self.contig_tree.contig_id_to_location_in_assembly[
-                start_contig.contig_descriptor.contig_id
-            ]
-            
-            end_contig_location: LocationInAssembly = self.contig_tree.contig_id_to_location_in_assembly[
-                end_contig.contig_descriptor.contig_id
-            ]
 
         (
             _,
