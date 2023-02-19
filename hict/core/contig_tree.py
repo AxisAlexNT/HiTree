@@ -722,19 +722,3 @@ class ContigTree:
         with self.root_lock.gen_rlock():
             ContigTree.traverse_nodes_at_resolution(
                 self.root, resolution, exclude_hidden, f)
-
-    # def leftmost(self):
-    #     return ContigTree.get_leftmost(self.root)
-    #
-    # def rightmost(self):
-    #     return ContigTree.get_rightmost(self.root)
-
-    # # TODO: Remove debug methods:
-    # @staticmethod
-    # def pn(n: Node):
-    #     print(
-    #         f"Node contig_id={n.contig_descriptor.contig_id} direction={n.true_direction()} length={str(n.contig_descriptor.contig_length_at_resolution)}")
-    #
-    # @staticmethod
-    # def ni(n: Node):
-    #     ContigTree.traverse_node(n, ContigTree.pn)
