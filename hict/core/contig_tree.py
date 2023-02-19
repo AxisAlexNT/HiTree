@@ -643,7 +643,6 @@ class ContigTree:
         exclude_hidden: bool,
         f: Callable[[Node], None],
         push: bool = True,
-        check_links=False
     ) -> None:
         if push:
             ContigTree.traverse_nodes_at_resolution_with_pushes(
@@ -651,7 +650,6 @@ class ContigTree:
                 resolution,
                 exclude_hidden,
                 f,
-                check_links
             )
         else:
             ContigTree.traverse_nodes_at_resolution_no_push(
@@ -659,7 +657,6 @@ class ContigTree:
                 resolution,
                 exclude_hidden,
                 f,
-                check_links
             )
 
     @staticmethod
@@ -676,7 +673,6 @@ class ContigTree:
             resolution,
             exclude_hidden,
             f,
-            check_links
         )
         if not exclude_hidden or t.contig_descriptor.presence_in_resolution[resolution] in (
                 ContigHideType.AUTO_SHOWN,
@@ -688,7 +684,6 @@ class ContigTree:
             resolution,
             exclude_hidden,
             f,
-            check_links
         )
 
     @staticmethod
@@ -706,7 +701,6 @@ class ContigTree:
             resolution,
             exclude_hidden,
             f,
-            check_links
         )
         if not exclude_hidden or new_t.contig_descriptor.presence_in_resolution[resolution] in (
                 ContigHideType.AUTO_SHOWN,
@@ -718,7 +712,6 @@ class ContigTree:
             resolution,
             exclude_hidden,
             f,
-            check_links
         )
 
     def traverse(self, f: Callable[[Node], None]):
