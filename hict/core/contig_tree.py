@@ -614,10 +614,11 @@ class ContigTree:
     #         )
     #         return contig_raw_node.contig_descriptor, left_subsize_count
 
-    def insert_at_position(self, contig_descriptor: ContigDescriptor, index: np.int64, direction: ContigDirection, update_tree: bool = True):
+    def insert_at_position(self, contig_descriptor: ContigDescriptor, index: np.int64, direction: ContigDirection, scaffold_id: Optional[np.int64], update_tree: bool = True):
         new_node: ContigTree.Node = ContigTree.Node.make_new_node_from_descriptor(
             contig_descriptor,
-            direction=direction
+            direction=direction,
+            scaffold_id=scaffold_id
         )
         with self.root_lock.gen_wlock():
             self.contig_id_to_node_in_tree[contig_descriptor.contig_id] = new_node

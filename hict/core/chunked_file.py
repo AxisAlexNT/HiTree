@@ -191,7 +191,7 @@ class ChunkedFile(object):
                     contig_presence_in_resolution=contig_presence_at_resolution,
                     # {resolution: list(map(lambda ati: self.atl[resolution][ati], contig_id_to_atus[contig_id][resolution])) for resolution in resolutions},
                     atus=contig_id_to_atus[contig_id],
-                    scaffold_id=contig_id_to_scaffold_id[contig_id]
+                    # scaffold_id=contig_id_to_scaffold_id[contig_id]
                 )
                 contig_id_to_contig_descriptor.append(contig_descriptor)
 
@@ -201,7 +201,8 @@ class ChunkedFile(object):
                     contig_descriptor,
                     self.contig_tree.get_node_count(),
                     direction=contig_id_to_direction[contig_id],
-                    update_tree=False
+                    update_tree=False,
+                    scaffold_id=contig_id_to_scaffold_id[contig_id]
                 )
             self.contig_tree.update_tree()
             self.restore_scaffolds(f)
