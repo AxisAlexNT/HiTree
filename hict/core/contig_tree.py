@@ -28,8 +28,8 @@ class ContigTree:
         contig_descriptor: ContigDescriptor
         subtree_count: np.int64
         # subtree_count_excluding_hidden: np.int64
-        subtree_length_bins: Dict[np.int64, np.int64]
-        subtree_length_px: Dict[np.int64, np.int64]
+        # subtree_length_bins: Dict[np.int64, np.int64]
+        # subtree_length_px: Dict[np.int64, np.int64]
         y_priority: np.int64
         left: Optional['ContigTree.Node']
         right: Optional['ContigTree.Node']
@@ -119,9 +119,9 @@ class ContigTree:
                 needs_changing_direction=deepcopy(n.needs_changing_direction),
                 needs_updating_scaffold_id_in_subtree=deepcopy(
                     n.needs_updating_scaffold_id_in_subtree),
-                y_priority=deepcopy(n.y_priority),
-                direction=n.direction,
-                scaffold_id=n.scaffold_id
+                y_priority=np.int64(n.y_priority),
+                direction=deepcopy(n.direction),
+                scaffold_id=deepcopy(n.scaffold_id)
             )
 
         def clone(self) -> 'ContigTree.Node':
@@ -158,17 +158,21 @@ class ContigTree:
 
         def push(self) -> 'ContigTree.Node':
             new_node = self.clone()
+            if new_node.left is not None:
+                new_node.left = new_node.left.clone()
+                new_node.left.parent = self
+            if new_node.right is not None:
+                new_node.right = new_node.right.clone()
+                new_node.right.parent = self
             if new_node.needs_changing_direction:
                 (new_node.left, new_node.right) = (
                     new_node.right, new_node.left)
                 if new_node.left is not None:
                     new_node.left = new_node.left.clone()
                     new_node.left.needs_changing_direction = not new_node.left.needs_changing_direction
-                    new_node.left.parent = new_node
                 if new_node.right is not None:
                     new_node.right = new_node.right.clone()
                     new_node.right.needs_changing_direction = not new_node.right.needs_changing_direction
-                    new_node.right.parent = new_node
                 new_node.direction = ContigDirection(
                     1 - new_node.direction.value)
                 new_node.needs_changing_direction = False
@@ -177,12 +181,10 @@ class ContigTree:
                     new_node.left = new_node.left.clone()
                     new_node.left.scaffold_id = new_node.scaffold_id
                     new_node.left.needs_updating_scaffold_id_in_subtree = True
-                    new_node.left.parent = new_node
                 if new_node.right is not None:
                     new_node.right = new_node.right.clone()
                     new_node.right.scaffold_id = new_node.scaffold_id
                     new_node.right.needs_updating_scaffold_id_in_subtree = True
-                    new_node.right.parent = new_node
                 new_node.needs_updating_scaffold_id_in_subtree = False
             return new_node
 
