@@ -5,7 +5,6 @@ import threading
 import multiprocessing
 import multiprocessing.managers
 from typing import Dict, Optional, Tuple, List, Callable, NamedTuple
-
 from copy import deepcopy
 
 import numpy as np
@@ -833,11 +832,13 @@ class ContigTree:
         new_t = t.push()
         new_l, current_contig_location = self.update_subtree_state(
             new_t.left, delta_position)
-        
-        self.contig_id_to_location_in_assembly[t.contig_descriptor.contig_id] = current_contig_location
-        next_contig_location = current_contig_location.shifted_by_contig(t.contig_descriptor)
 
-        new_r, new_r_pos = self.update_subtree_state(new_t.right, next_contig_location)
+        self.contig_id_to_location_in_assembly[t.contig_descriptor.contig_id] = current_contig_location
+        next_contig_location = current_contig_location.shifted_by_contig(
+            t.contig_descriptor)
+
+        new_r, new_r_pos = self.update_subtree_state(
+            new_t.right, next_contig_location)
         new_t.left = new_l
         new_t.right = new_r
         new_new_t = new_t.update_sizes()
@@ -851,7 +852,8 @@ class ContigTree:
     def update_tree(self):
         with self.root_lock.gen_wlock():
             old_root = self.root
-            new_root, _ = self.update_subtree_state(old_root, self.trivial_location_in_assembly)
+            new_root, _ = self.update_subtree_state(
+                old_root, self.trivial_location_in_assembly)
             self.root = new_root
 
     @staticmethod

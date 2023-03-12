@@ -1,0 +1,2 @@
+class VersionNotPresentException(BaseException):
+    pass
