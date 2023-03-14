@@ -1,12 +1,19 @@
+import multiprocessing
+import threading
+import random
+import sys
+from typing import Optional, Tuple
 from hict.core.common import ScaffoldDescriptor
 from readerwriterlock import rwlock
+import numpy as np
 
 
 class ScaffoldTree(object):
     class Node:
         length_bp: np.int64
         subtree_length_bp: np.int64
-        # When scaffold_descriptor is None, node corresponds to the contigs not in scaffold
+        # When scaffold_descriptor is None, node corresponds
+        # to the contigs not in scaffold
         scaffold_descriptor: Optional[ScaffoldDescriptor]
         y_priority: np.int64
         left: Optional['ScaffoldTree.Node']
@@ -59,7 +66,7 @@ class ScaffoldTree(object):
 
         def update_sizes(self) -> 'ScaffoldTree.Node':
             new_node = self.clone()
-            new_node.subtree_length_bp = length_bp
+            new_node.subtree_length_bp = new_node.length_bp
             if new_node.left is not None:
                 new_node.subtree_length_bp += new_node.left.subtree_length_bp
             if new_node.right is not None:
@@ -67,9 +74,13 @@ class ScaffoldTree(object):
             return new_node
 
         @staticmethod
-        def split_bp(t: Optional['ScaffoldTree.Node'], left_size: np.int64, include_equal_to_the_left: bool) -> Tuple[Optional['ScaffoldTree.Node'], Optional['ScaffoldTree.Node']]:
+        def split_bp(
+            t: Optional['ScaffoldTree.Node'],
+            left_size: np.int64,
+            include_equal_to_the_left: bool
+        ) -> Tuple[Optional['ScaffoldTree.Node'], Optional['ScaffoldTree.Node']]:
             if t is None:
-                return None
+                return None, None
             new_t = t.push()
             left_subtree_length = (
                 new_t.left.subtree_length_bp
@@ -82,8 +93,7 @@ class ScaffoldTree(object):
                     include_equal_to_the_left
                 )
                 new_t.left = t2
-                new_new_t = new_t.push()
-                return (t1, new_new_t)
+                return t1, new_t.update_sizes()
             elif left_subtree_length < left_size <= left_subtree_length + new_t.length_bp:
                 if new_t.scaffold_descriptor is not None:
                     if include_equal_to_the_left:
@@ -96,11 +106,18 @@ class ScaffoldTree(object):
                         return t1, new_t.update_sizes()
                 else:
                     t1 = new_t.clone()
-                    t2 = new_t.clone()
                     t1.length_bp = left_size - left_subtree_length
-                    t2.length_bp -= t1.length_bp
                     t1.right = None
-                    t2.left = None
+
+                    right_part_length_bp = new_t.length_bp - t1.length_bp
+                    if right_part_length_bp > 0:
+                        t2 = new_t.clone()
+                        t2.length_bp = right_part_length_bp
+                        t2.left = None
+                    else:
+                        t2 = new_t.right
+                    assert t1 is not None
+                    assert t2 is not None
                     return t1.update_sizes(), t2.update_sizes()
             else:
                 (t1, t2) = ScaffoldTree.Node.split_bp(
@@ -108,7 +125,56 @@ class ScaffoldTree(object):
                     left_size - left_subtree_length - new_t.length_bp,
                     include_equal_to_the_left
                 )
-            pass
+                new_t.right = t1
+                return new_t.update_sizes(), t2
+
+        @staticmethod
+        def merge(
+            t1: Optional['ScaffoldTree.Node'],
+            t2: Optional['ScaffoldTree.Node']
+        ) -> Optional['ScaffoldTree.Node']:
+            if t1 is None:
+                return t2
+            if t2 is None:
+                return t1
+            t1 = t1.push()
+            t2 = t1.push()
+
+            if t1.y_priority > t2.y_priority:
+                t1.right = ScaffoldTree.Node.merge(t1.right, t2)
+                t1.update_sizes()
+                return ScaffoldTree.Node._optimize_empty_space(t1)
+            else:
+                t2.left = ScaffoldTree.Node.merge(t1, t2.left)
+                t2.update_sizes()
+                return ScaffoldTree.Node._optimize_empty_space(t2)
+
+        @staticmethod
+        def _optimize_empty_space(
+            t: Optional['ScaffoldTree.Node']
+        ) -> Optional['ScaffoldTree.Node']:
+            if t is None or t.scaffold_descriptor is not None:
+                return t
+
+            if t.left is not None and t.left.scaffold_descriptor is None:
+                son = t.left
+                if son.left is None:
+                    t.length_bp += son.length_bp
+                    t.left = son.right
+                elif son.right is None:
+                    t.length_bp += son.length_bp
+                    t.left = son.left
+
+            if t.right is not None and t.right.scaffold_descriptor is None:
+                son = t.right
+                if son.left is None:
+                    t.length_bp += son.length_bp
+                    t.left = son.right
+                elif son.right is None:
+                    t.length_bp += son.length_bp
+                    t.left = son.left
+
+            return t
 
     root: ScaffoldTree.Node
     root_lock: rwlock.RWLockWrite
@@ -128,7 +194,8 @@ class ScaffoldTree(object):
                 )
             ),
             left=None,
-            right=None
+            right=None,
+            needs_changing_direction=False
         )
         if mp_manager is not None:
             lock_factory = mp_manager.RLock
