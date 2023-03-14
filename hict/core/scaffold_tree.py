@@ -99,7 +99,7 @@ class ScaffoldTree(object):
                 )
                 new_t.left = t2
                 return t1, new_t.update_sizes()
-            elif left_subtree_length < left_size <= left_subtree_length + new_t.length_bp:
+            elif left_subtree_length < left_size < left_subtree_length + new_t.length_bp:
                 if new_t.scaffold_descriptor is not None:
                     if include_equal_to_the_left:
                         t2 = new_t.right
@@ -142,17 +142,27 @@ class ScaffoldTree(object):
                 return t2
             if t2 is None:
                 return t1
+            old_t1_length = t1.subtree_length_bp
+            old_t2_length = t2.subtree_length_bp
             t1 = t1.push()
-            t2 = t1.push()
+            t2 = t2.push()
 
             if t1.y_priority > t2.y_priority:
                 t1.right = ScaffoldTree.Node.merge(t1.right, t2)
-                t1.update_sizes()
-                return ScaffoldTree.Node._optimize_empty_space(t1)
+                new_t = ScaffoldTree.Node._optimize_empty_space(t1.update_sizes())
+                assert new_t is not None
+                assert (
+                    new_t.subtree_length_bp == (old_t1_length + old_t2_length)
+                ), "Assembly length has changed after merge??"
+                return new_t
             else:
                 t2.left = ScaffoldTree.Node.merge(t1, t2.left)
-                t2.update_sizes()
-                return ScaffoldTree.Node._optimize_empty_space(t2)
+                new_t = ScaffoldTree.Node._optimize_empty_space(t2.update_sizes())
+                assert new_t is not None
+                assert (
+                    new_t.subtree_length_bp == (old_t1_length + old_t2_length)
+                ), "Assembly length has changed after merge??"
+                return new_t
 
         @staticmethod
         def _optimize_empty_space(
@@ -179,7 +189,7 @@ class ScaffoldTree(object):
                     t.length_bp += son.length_bp
                     t.left = son.left
 
-            return t
+            return t.update_sizes()
 
         @staticmethod
         def expose(
@@ -187,10 +197,33 @@ class ScaffoldTree(object):
             from_bp: np.int64,
             to_bp: np.int64
         ) -> 'ScaffoldTree.ExposedSegment':
+            total_length = t.subtree_length_bp if t is not None else np.int64(0)
+            to_bp = min(to_bp, total_length)
+            from_bp = max(np.int64(0), from_bp)
             le, gr = ScaffoldTree.Node.split_bp(
                 t, to_bp, include_equal_to_the_left=True)
+            le_size = (le.subtree_length_bp if le is not None else np.int64(0))
+            assert (
+                le_size == to_bp
+            ), "Less-or-equal part does not end where desired??"
             ls, sg = ScaffoldTree.Node.split_bp(
-                le, from_bp, include_equal_to_the_left=False)
+                le, from_bp, include_equal_to_the_left=True)
+            less_size = (ls.subtree_length_bp if ls is not None else np.int64(0))
+            segment_size = (sg.subtree_length_bp if sg is not None else np.int64(0))
+            greater_size = (gr.subtree_length_bp if gr is not None else np.int64(0))
+            
+            assert (
+                less_size == from_bp
+            ), "Less size is not as requested??"
+            
+            assert (
+                (less_size + segment_size) == to_bp
+            ), "Less+Segment do not end as desired??"
+            
+            assert (
+                (less_size + segment_size + greater_size) == total_length
+            ), "Exposed segments do not sum up to the total length??"
+            
             return ScaffoldTree.ExposedSegment(
                 ls,
                 sg,
@@ -255,13 +288,15 @@ class ScaffoldTree(object):
         scaffold_descriptor: ScaffoldDescriptor
     ) -> None:
         with self.root_lock.gen_wlock():
-            es = ScaffoldTree.Node.expose(self.root, start_bp_incl, end_bp_excl-1)
+            old_assembly_length_bp = self.root.subtree_length_bp
+            es = ScaffoldTree.Node.expose(
+                self.root, start_bp_incl, end_bp_excl)
             descriptors: List[ScaffoldDescriptor] = []
 
             def collect_scaffold(node: ScaffoldTree.Node) -> None:
                 if node.scaffold_descriptor is not None:
                     descriptors.append(node.scaffold_descriptor)
-            ScaffoldTree.Node.traverse(self.root, collect_scaffold)
+            ScaffoldTree.Node.traverse(es.segment, collect_scaffold)
             assert (
                 descriptors == []
             ), "Cannot add scaffold into already occupied state"
@@ -282,8 +317,11 @@ class ScaffoldTree(object):
                 ),
                 es.greater
             ))
-            
+            new_assembly_length_bp = self.root.subtree_length_bp
+            assert (
+                new_assembly_length_bp == old_assembly_length_bp
+            ), "Assembly length has changed after scaffolding??"
+
     def traverse(self, fun: Callable[[Node], None]) -> None:
         with self.root_lock.gen_rlock():
             ScaffoldTree.Node.traverse(self.root, fun)
-        

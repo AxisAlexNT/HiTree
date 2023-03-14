@@ -31,7 +31,7 @@
             "request": "launch",
             "module": "pytest",
             "args": [
-                ".\tests\test_ReverseTrees.py",
+                "./tests/test_ReverseTrees.py",
                 "-x",
                 "-n2"
             ],
@@ -43,10 +43,11 @@
             "module": "pytest",
             "args": [
                 "-x",
-                ".\tests\test_StripeTreeSplitMergeProperties.py",                
+                "./tests/test_StripeTreeSplitMergeProperties.py",                
             ],
             "justMyCode": true
-        }, {
+        }, 
+        {
             "name": "Debug Compare with Cooler",
             "type": "python",
             "request": "launch",
@@ -55,6 +56,17 @@
                 "-xvv",
                 "-n 4",
                 "tests/test_CompareWithCooler.py"
+            ],
+            "justMyCode": true
+        },{
+            "name": "Debug Scaffold Tree tests",
+            "type": "python",
+            "request": "launch",
+            "module": "pytest",
+            "args": [
+                "-xvv",
+                "-n 4",
+                "tests/test_ScaffoldTree.py"
             ],
             "justMyCode": true
         },{

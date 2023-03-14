@@ -28,38 +28,27 @@ def get_lock():
 
 def build_tree(
     scaffold_descriptors: List[ScaffoldDescriptor],
-    scaffold_size_bound: int,
-    empty_size_bound: int
+    scaffold_lengths: List[int],
+    empty_space_lengths: List[int],
+    mp_manager: Optional[multiprocessing.managers.SyncManager]
 ) -> ScaffoldTree:
-    scaffold_lengths = np.random.randint(
-        1,
-        scaffold_size_bound,
-        size=len(scaffold_descriptors),
-        dtype=np.int64
-    )
-    empty_lengths = np.random.randint(
-        0,
-        empty_size_bound,
-        size=1+len(scaffold_descriptors),
-        dtype=np.int64
-    )
     tree = ScaffoldTree(
-        assembly_length_bp=sum(scaffold_lengths)+sum(empty_lengths),
+        assembly_length_bp=np.int64(sum(scaffold_lengths)+sum(empty_space_lengths)),
         mp_manager=mp_manager
     )
     last_pos: np.int64 = np.int64(0)
     for i, sd in enumerate(scaffold_descriptors):
         tree.add_scaffold(
-            last_pos+empty_lengths[i],
-            last_pos+empty_lengths[i]+scaffold_lengths[i],
+            last_pos+empty_space_lengths[i],
+            last_pos+empty_space_lengths[i]+scaffold_lengths[i],
             sd
         )
-        last_pos += empty_lengths[i]+scaffold_lengths[i]
+        last_pos += empty_space_lengths[i]+scaffold_lengths[i]
     return tree
 
 
 @settings(
-    max_examples=500,
+    max_examples=5000,
     deadline=30000,
     derandomize=True,
     report_multiple_bugs=True,
@@ -86,11 +75,31 @@ def test_build_tree(
     scaffold_size_bound: int,
     empty_size_bound: int
 ):
+    scaffold_lengths = list(np.random.randint(
+        1,
+        scaffold_size_bound,
+        size=len(scaffold_descriptors),
+        dtype=np.int64)
+    )
+    empty_space_lengths = list(np.random.randint(
+        0,
+        empty_size_bound,
+        size=1+len(scaffold_descriptors),
+        dtype=np.int64
+    ))
+
     tree = build_tree(
         scaffold_descriptors=scaffold_descriptors,
-        scaffold_size_bound=scaffold_size_bound,
-        empty_size_bound=empty_size_bound
+        scaffold_lengths=scaffold_lengths,
+        empty_space_lengths=empty_space_lengths,
+        mp_manager=None
     )
+    
+    total_assembly_length = sum(scaffold_lengths)+sum(empty_space_lengths)
+    
+    assert (
+        tree.root.subtree_length_bp == total_assembly_length
+    ), "Tree does not cover all assembly?"
 
     nodes: List[ScaffoldTree.Node] = []
 
@@ -100,9 +109,19 @@ def test_build_tree(
     tree.traverse(traverse_fn)
 
     expected_descriptors = sorted(
-        scaffold_descriptors, key=lambda d: d.scaffold_id)
-    actual_descriptors = sorted(map(lambda n: n.scaffold_descriptor, filter(
-        lambda n: n.scaffold_descriptor is not None, nodes)), key=lambda d: d.scaffold_id)
+        scaffold_descriptors,
+        key=lambda d: d.scaffold_id
+    )
+    actual_descriptors = sorted(
+        map(
+            lambda n: n.scaffold_descriptor,
+            filter(
+                lambda n: n.scaffold_descriptor is not None,
+                nodes
+            )
+        ),
+        key=lambda d: d.scaffold_id
+    )
 
     assert (
         expected_descriptors == actual_descriptors
