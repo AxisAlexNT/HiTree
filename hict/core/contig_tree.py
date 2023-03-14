@@ -26,7 +26,7 @@ class ContigTree:
 
     class Node:
         contig_descriptor: ContigDescriptor
-        subtree_count: np.int64
+        # subtree_count: np.int64
         # subtree_count_excluding_hidden: np.int64
         # subtree_length_bins: Dict[np.int64, np.int64]
         # subtree_length_px: Dict[np.int64, np.int64]
@@ -86,8 +86,8 @@ class ContigTree:
             subtree_length_px = dict()
             for resolution, present in contig_descriptor.presence_in_resolution.items():
                 subtree_length_px[resolution] = (
-                    contig_descriptor.contig_length_at_resolution[resolution] if present else np.int64(
-                        0)
+                    contig_descriptor.contig_length_at_resolution[resolution] 
+                    if present else np.int64(0)
                 )
             return ContigTree.Node(
                 contig_descriptor=contig_descriptor,

@@ -213,9 +213,21 @@ class ATUDescriptor(RecordClass):
 class ScaffoldDescriptor(RecordClass):
     scaffold_id: np.int64
     scaffold_name: str
-    scaffold_borders: Optional[ScaffoldBorders]
-    scaffold_direction: ScaffoldDirection
+    # scaffold_borders: Optional[ScaffoldBorders]
+    # scaffold_direction: ScaffoldDirection
     spacer_length: int = 1000
+
+    @staticmethod
+    def make_scaffold_descriptor(
+        scaffold_id: np.int64,
+        scaffold_name: str,
+        spacer_length: int = 1000
+    ) -> 'ScaffoldDescriptor':
+        return ScaffoldDescriptor(
+            scaffold_id=scaffold_id,
+            scaffold_name=scaffold_name,
+            spacer_length=spacer_length
+        )
 
 
 class ContigDescriptor(RecordClass):

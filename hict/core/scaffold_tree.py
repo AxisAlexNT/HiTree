@@ -2,13 +2,18 @@ import multiprocessing
 import threading
 import random
 import sys
-from typing import Optional, Tuple
+from typing import Callable, List, NamedTuple, Optional, Tuple
 from hict.core.common import ScaffoldDescriptor
 from readerwriterlock import rwlock
 import numpy as np
 
 
 class ScaffoldTree(object):
+    class ExposedSegment(NamedTuple):
+        less: Optional['ScaffoldTree.Node']
+        segment: Optional['ScaffoldTree.Node']
+        greater: Optional['ScaffoldTree.Node']
+
     class Node:
         length_bp: np.int64
         subtree_length_bp: np.int64
@@ -176,7 +181,35 @@ class ScaffoldTree(object):
 
             return t
 
-    root: ScaffoldTree.Node
+        @staticmethod
+        def expose(
+            t: Optional['ScaffoldTree.Node'],
+            from_bp: np.int64,
+            to_bp: np.int64
+        ) -> 'ScaffoldTree.ExposedSegment':
+            le, gr = ScaffoldTree.Node.split_bp(
+                t, to_bp, include_equal_to_the_left=True)
+            ls, sg = ScaffoldTree.Node.split_bp(
+                le, from_bp, include_equal_to_the_left=False)
+            return ScaffoldTree.ExposedSegment(
+                ls,
+                sg,
+                gr
+            )
+
+        @staticmethod
+        def traverse(node: Optional['ScaffoldTree.Node'], fun: Callable[['ScaffoldTree.Node'], None]) -> None:
+            if node is not None:
+                left, right = node.left, node.right
+                if node.needs_changing_direction:
+                    (left, right) = (right, left)
+                if left is not None:
+                    ScaffoldTree.Node.traverse(left, fun)
+                fun(node)
+                if right is not None:
+                    ScaffoldTree.Node.traverse(right, fun)
+
+    root: Node
     root_lock: rwlock.RWLockWrite
 
     def __init__(
@@ -202,3 +235,55 @@ class ScaffoldTree(object):
         else:
             lock_factory = threading.RLock
         self.root_lock = rwlock.RWLockWrite(lock_factory=lock_factory)
+
+    def commit_root(
+        self,
+        exposed_segment: ExposedSegment
+    ) -> None:
+        le = ScaffoldTree.Node.merge(
+            exposed_segment.less, exposed_segment.segment)
+        rt = ScaffoldTree.Node.merge(le, exposed_segment.greater)
+        assert (
+            rt is not None), "Scaffold Tree root must not be none, at least an empty space"
+        with self.root_lock.gen_wlock():
+            self.root = rt
+
+    def add_scaffold(
+        self,
+        start_bp_incl: np.int64,
+        end_bp_excl: np.int64,
+        scaffold_descriptor: ScaffoldDescriptor
+    ) -> None:
+        with self.root_lock.gen_wlock():
+            es = ScaffoldTree.Node.expose(self.root, start_bp_incl, end_bp_excl-1)
+            descriptors: List[ScaffoldDescriptor] = []
+
+            def collect_scaffold(node: ScaffoldTree.Node) -> None:
+                if node.scaffold_descriptor is not None:
+                    descriptors.append(node.scaffold_descriptor)
+            ScaffoldTree.Node.traverse(self.root, collect_scaffold)
+            assert (
+                descriptors == []
+            ), "Cannot add scaffold into already occupied state"
+            self.commit_root(ScaffoldTree.ExposedSegment(
+                es.less,
+                ScaffoldTree.Node(
+                    length_bp=end_bp_excl-start_bp_incl,
+                    scaffold_descriptor=scaffold_descriptor,
+                    y_priority=np.int64(
+                        random.randint(
+                            1 - sys.maxsize,
+                            sys.maxsize - 1
+                        )
+                    ),
+                    left=None,
+                    right=None,
+                    needs_changing_direction=False
+                ),
+                es.greater
+            ))
+            
+    def traverse(self, fun: Callable[[Node], None]) -> None:
+        with self.root_lock.gen_rlock():
+            ScaffoldTree.Node.traverse(self.root, fun)
+        

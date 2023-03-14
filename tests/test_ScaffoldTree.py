@@ -27,9 +27,35 @@ def get_lock():
 # random.seed(int(time.time()))
 
 def build_tree(
-    scaffold_descriptors: List[ScaffoldDescriptor]
+    scaffold_descriptors: List[ScaffoldDescriptor],
+    scaffold_size_bound: int,
+    empty_size_bound: int
 ) -> ScaffoldTree:
-    pass
+    scaffold_lengths = np.random.randint(
+        1,
+        scaffold_size_bound,
+        size=len(scaffold_descriptors),
+        dtype=np.int64
+    )
+    empty_lengths = np.random.randint(
+        0,
+        empty_size_bound,
+        size=1+len(scaffold_descriptors),
+        dtype=np.int64
+    )
+    tree = ScaffoldTree(
+        assembly_length_bp=sum(scaffold_lengths)+sum(empty_lengths),
+        mp_manager=mp_manager
+    )
+    last_pos: np.int64 = np.int64(0)
+    for i, sd in enumerate(scaffold_descriptors):
+        tree.add_scaffold(
+            last_pos+empty_lengths[i],
+            last_pos+empty_lengths[i]+scaffold_lengths[i],
+            sd
+        )
+        last_pos += empty_lengths[i]+scaffold_lengths[i]
+    return tree
 
 
 @settings(
@@ -43,557 +69,41 @@ def build_tree(
     )
 )
 @given(
-    resolution=st.sampled_from(resolutions_mcool),
-    start_row_incl_bp=st.integers(min_value=0, max_value=total_bp_length),
-    start_col_incl_bp=st.integers(min_value=0, max_value=total_bp_length),
-    end_row_excl_bp=st.integers(min_value=0, max_value=total_bp_length),
-    end_col_excl_bp=st.integers(min_value=0, max_value=total_bp_length)
+    scaffold_descriptors=st.lists(
+        st.builds(
+            ScaffoldDescriptor.make_scaffold_descriptor,
+            scaffold_id=st.integers(0, 10000),
+            scaffold_name=st.text(max_size=10),
+            spacer_length=st.integers(min_value=500, max_value=501),
+        ),
+        unique_by=(lambda sd: sd.scaffold_id)
+    ),
+    scaffold_size_bound=st.integers(min_value=2, max_value=100000),
+    empty_size_bound=st.integers(min_value=2, max_value=100000)
 )
-def test_compare_with_cooler(
-    resolution,
-    start_row_incl_bp,
-    start_col_incl_bp,
-    end_row_excl_bp,
-    end_col_excl_bp,
+def test_build_tree(
+    scaffold_descriptors: List[ScaffoldDescriptor],
+    scaffold_size_bound: int,
+    empty_size_bound: int
 ):
-    matrix_size_bins = ContactMatrixFacet.get_matrix_size_bins(
-        hict_file, resolution)
-    start_row_incl = (start_row_incl_bp // resolution) % matrix_size_bins
-    start_col_incl = (start_col_incl_bp // resolution) % matrix_size_bins
-    end_row_excl = (end_row_excl_bp // resolution) % matrix_size_bins
-    end_col_excl = (end_col_excl_bp // resolution) % matrix_size_bins
-    if start_row_incl > end_row_excl:
-        start_row_incl, end_row_excl = end_row_excl, start_row_incl
-    if start_col_incl > end_col_excl:
-        start_col_incl, end_col_excl = end_col_excl, start_col_incl
-    if end_row_excl - start_row_incl > 2048:
-        end_row_excl = start_row_incl + \
-            ((end_row_excl - start_row_incl) % 2048)
-    if end_col_excl - start_col_incl > 2048:
-        end_col_excl = start_col_incl + \
-            ((end_col_excl - start_col_incl) % 2048)
-    if start_row_incl > end_row_excl:
-        start_row_incl, end_row_excl = end_row_excl, start_row_incl
-    if start_col_incl > end_col_excl:
-        start_col_incl, end_col_excl = end_col_excl, start_col_incl
-    cooler_file: cooler.Cooler = cooler.Cooler(
-        "{}::/resolutions/{}".format(str(mcool_file_path), resolution))
-    cooler_matrix_selector: cooler.api.RangeSelector2D = cooler_file.matrix(
-        field='count', balance=False)
-    cooler_dense: np.ndarray = cooler_matrix_selector[start_row_incl:end_row_excl,
-                                                      start_col_incl:end_col_excl]
-    with hict_file_lock.gen_rlock() as hfl:
-        my_dense = ContactMatrixFacet.get_dense_submatrix(
-            hict_file,
-            resolution,
-            start_row_incl,
-            start_col_incl,
-            end_row_excl,
-            end_col_excl,
-            units=QueryLengthUnit.BINS,
-            exclude_hidden_contigs=False
-        )[0]
-    my_dense = np.pad(my_dense, [(0, end_row_excl-start_row_incl-my_dense.shape[0]), (0,
-                      end_col_excl-start_col_incl-my_dense.shape[1])], mode='constant', constant_values=0)
+    tree = build_tree(
+        scaffold_descriptors=scaffold_descriptors,
+        scaffold_size_bound=scaffold_size_bound,
+        empty_size_bound=empty_size_bound
+    )
+
+    nodes: List[ScaffoldTree.Node] = []
+
+    def traverse_fn(node: ScaffoldTree.Node):
+        nodes.append(node)
+
+    tree.traverse(traverse_fn)
+
+    expected_descriptors = sorted(
+        scaffold_descriptors, key=lambda d: d.scaffold_id)
+    actual_descriptors = sorted(map(lambda n: n.scaffold_descriptor, filter(
+        lambda n: n.scaffold_descriptor is not None, nodes)), key=lambda d: d.scaffold_id)
+
     assert (
-        my_dense.shape == (end_row_excl-start_row_incl,
-                           end_col_excl-start_col_incl)
-    ), f"Matrix shape {my_dense.shape} should be equal to that of query: {(end_row_excl-start_row_incl, end_col_excl-start_col_incl)}, whereas cooler returned {cooler_dense.shape}"
-    assert (
-        np.array_equal(cooler_dense, my_dense)
-    ), "Dense random submatrices returned by Cooler and HiCT should be equal"
-    del cooler_dense
-    del my_dense
-    del cooler_file
-    hict_file.clear_caches(saved_blocks=True)
-    gc.collect()
-
-
-@settings(
-    max_examples=500,
-    deadline=30000,
-    derandomize=True,
-    report_multiple_bugs=True,
-    suppress_health_check=(
-        HealthCheck.filter_too_much,
-        HealthCheck.data_too_large
-    )
-)
-@given(
-    resolution=st.sampled_from(resolutions_mcool),
-    start_row_incl=st.integers(min_value=0, max_value=total_bp_length),
-    start_col_incl=st.integers(min_value=0, max_value=total_bp_length),
-    end_row_excl=st.integers(min_value=0, max_value=total_bp_length),
-    end_col_excl=st.integers(min_value=0, max_value=total_bp_length)
-)
-def test_compare_with_cooler_by_bins(
-    resolution,
-    start_row_incl,
-    start_col_incl,
-    end_row_excl,
-    end_col_excl,
-):
-    matrix_size_bins = ContactMatrixFacet.get_matrix_size_bins(
-        hict_file, resolution)
-    start_row_incl %= matrix_size_bins
-    start_col_incl %= matrix_size_bins
-    end_row_excl %= matrix_size_bins
-    end_col_excl %= matrix_size_bins
-    if start_row_incl > end_row_excl:
-        start_row_incl, end_row_excl = end_row_excl, start_row_incl
-    if start_col_incl > end_col_excl:
-        start_col_incl, end_col_excl = end_col_excl, start_col_incl
-    if end_row_excl - start_row_incl > 2048:
-        end_row_excl = start_row_incl + \
-            ((end_row_excl - start_row_incl) % 2048)
-    if end_col_excl - start_col_incl > 2048:
-        end_col_excl = start_col_incl + \
-            ((end_col_excl - start_col_incl) % 2048)
-    cooler_file: cooler.Cooler = cooler.Cooler(
-        "{}::/resolutions/{}".format(str(mcool_file_path), resolution))
-    cooler_matrix_selector: cooler.api.RangeSelector2D = cooler_file.matrix(
-        field='count', balance=False)
-    cooler_dense: np.ndarray = cooler_matrix_selector[start_row_incl:end_row_excl,
-                                                      start_col_incl:end_col_excl]
-    with hict_file_lock.gen_rlock():
-        my_dense = ContactMatrixFacet.get_dense_submatrix(
-            hict_file,
-            resolution,
-            start_row_incl,
-            start_col_incl,
-            end_row_excl,
-            end_col_excl,
-            units=QueryLengthUnit.BINS,
-            exclude_hidden_contigs=False
-        )[0]
-    my_dense = np.pad(my_dense, [(0, end_row_excl-start_row_incl-my_dense.shape[0]), (0,
-                      end_col_excl-start_col_incl-my_dense.shape[1])], mode='constant', constant_values=0)
-    assert (
-        my_dense.shape == (end_row_excl-start_row_incl,
-                           end_col_excl-start_col_incl)
-    ), f"Matrix shape {my_dense.shape} should be equal to that of query: {(end_row_excl-start_row_incl, end_col_excl-start_col_incl)}, whereas cooler returned {cooler_dense.shape}"
-    assert (
-        np.array_equal(cooler_dense, my_dense)
-    ), "Dense random submatrices returned by Cooler and HiCT should be equal"
-    del cooler_dense
-    del my_dense
-    del cooler_file
-    hict_file.clear_caches(saved_blocks=True)
-    gc.collect()
-
-
-@settings(
-    max_examples=500,
-    deadline=30000,
-    derandomize=True,
-    report_multiple_bugs=True,
-    suppress_health_check=(
-        HealthCheck.filter_too_much,
-        HealthCheck.data_too_large
-    )
-)
-@given(
-    resolution=st.sampled_from(resolutions_mcool),
-    start_row_incl_bp=st.integers(min_value=0, max_value=total_bp_length),
-    start_col_incl_bp=st.integers(min_value=0, max_value=total_bp_length),
-    # , 5, 10, 64, 100, 127, 512, 1000, 2560])
-    query_size=st.sampled_from([1, 2, 3]),
-)
-def test_compare_small_square_queries_with_cooler(
-    resolution,
-    start_row_incl_bp,
-    start_col_incl_bp,
-    query_size
-):
-    return compare_square_queries_with_cooler(
-        resolution,
-        start_row_incl_bp,
-        start_col_incl_bp,
-        query_size
-    )
-
-
-@settings(
-    max_examples=500,
-    deadline=30000,
-    derandomize=True,
-    report_multiple_bugs=True,
-    suppress_health_check=(
-        HealthCheck.filter_too_much,
-        HealthCheck.data_too_large
-    )
-)
-@given(
-    resolution=st.sampled_from(resolutions_mcool),
-    start_row_incl_bp=st.integers(min_value=0, max_value=total_bp_length),
-    start_col_incl_bp=st.integers(min_value=0, max_value=total_bp_length),
-    query_size=st.sampled_from([1, 2, 5, 10, 64, 100, 127, 512, 1000, 2560])
-)
-def test_compare_square_queries_with_cooler(
-    resolution,
-    start_row_incl_bp,
-    start_col_incl_bp,
-    query_size
-):
-    return compare_square_queries_with_cooler(
-        resolution,
-        start_row_incl_bp,
-        start_col_incl_bp,
-        query_size
-    )
-
-
-def compare_square_queries_with_cooler(
-    resolution,
-    start_row_incl_bp,
-    start_col_incl_bp,
-    query_size
-):
-    matrix_size_bins = ContactMatrixFacet.get_matrix_size_bins(
-        hict_file, resolution)
-    start_row_incl = (start_row_incl_bp // resolution) % matrix_size_bins
-    start_col_incl = (start_col_incl_bp // resolution) % matrix_size_bins
-    end_row_excl = start_row_incl + query_size
-    end_col_excl = start_col_incl + query_size
-    if start_row_incl > end_row_excl:
-        start_row_incl, end_row_excl = end_row_excl, start_row_incl
-    if start_col_incl > end_col_excl:
-        start_col_incl, end_col_excl = end_col_excl, start_col_incl
-    cooler_file: cooler.Cooler = cooler.Cooler(
-        "{}::/resolutions/{}".format(str(mcool_file_path), resolution))
-    cooler_matrix_selector: cooler.api.RangeSelector2D = cooler_file.matrix(
-        field='count', balance=False)
-    cooler_dense: np.ndarray = cooler_matrix_selector[start_row_incl:end_row_excl,
-                                                      start_col_incl:end_col_excl]
-    with hict_file_lock.gen_rlock() as hfl:
-        my_dense = ContactMatrixFacet.get_dense_submatrix(
-            hict_file,
-            resolution,
-            start_row_incl,
-            start_col_incl,
-            end_row_excl,
-            end_col_excl,
-            units=QueryLengthUnit.BINS,
-            exclude_hidden_contigs=False
-        )[0]
-    my_dense = np.pad(my_dense, [(0, query_size-my_dense.shape[0]), (0,
-                      query_size-my_dense.shape[1])], mode='constant', constant_values=0)
-    assert (
-        my_dense.shape == (query_size, query_size)
-    ), f"Matrix shape {my_dense.shape} should be equal to that of query: {(query_size, query_size)}, whereas cooler returned {cooler_dense.shape}"
-    assert (
-        np.array_equal(cooler_dense, my_dense)
-    ), "Dense square submatrices returned by Cooler and HiCT should be equal"
-    del cooler_dense
-    del my_dense
-    del cooler_file
-    hict_file.clear_caches(saved_blocks=True)
-    gc.collect()
-
-
-@settings(
-    max_examples=500,
-    deadline=30000,
-    derandomize=True,
-    report_multiple_bugs=True,
-    suppress_health_check=(
-        HealthCheck.filter_too_much,
-        HealthCheck.data_too_large
-    )
-)
-@given(
-    resolution=st.sampled_from(resolutions_mcool),
-    start_row_incl=st.integers(min_value=0, max_value=total_bp_length),
-    start_col_incl=st.integers(min_value=0, max_value=total_bp_length),
-    query_size=st.sampled_from([1, 2, 3, 5, 10])
-)
-def test_compare_small_square_queries_with_cooler_by_bins(
-    resolution,
-    start_row_incl,
-    start_col_incl,
-    query_size
-):
-    return compare_square_queries_with_cooler_by_bins(
-        resolution,
-        start_row_incl,
-        start_col_incl,
-        query_size
-    )
-
-
-@settings(
-    max_examples=500,
-    deadline=30000,
-    derandomize=True,
-    report_multiple_bugs=True,
-    suppress_health_check=(
-        HealthCheck.filter_too_much,
-        HealthCheck.data_too_large
-    )
-)
-@given(
-    resolution=st.sampled_from(resolutions_mcool),
-    start_row_incl=st.integers(min_value=0, max_value=total_bp_length),
-    start_col_incl=st.integers(min_value=0, max_value=total_bp_length),
-    query_size=st.sampled_from([1, 2, 5, 10, 64, 100, 127, 512, 1000, 2560])
-)
-def test_compare_square_queries_with_cooler_by_bins(
-    resolution,
-    start_row_incl,
-    start_col_incl,
-    query_size
-):
-    return compare_square_queries_with_cooler_by_bins(
-        resolution,
-        start_row_incl,
-        start_col_incl,
-        query_size
-    )
-
-
-def compare_square_queries_with_cooler_by_bins(
-    resolution,
-    start_row_incl,
-    start_col_incl,
-    query_size
-):
-    matrix_size_bins = ContactMatrixFacet.get_matrix_size_bins(
-        hict_file, resolution)
-    start_row_incl %= matrix_size_bins
-    start_col_incl %= matrix_size_bins
-    end_row_excl = start_row_incl + query_size
-    end_col_excl = start_col_incl + query_size
-    if start_row_incl > end_row_excl:
-        start_row_incl, end_row_excl = end_row_excl, start_row_incl
-    if start_col_incl > end_col_excl:
-        start_col_incl, end_col_excl = end_col_excl, start_col_incl
-    cooler_file: cooler.Cooler = cooler.Cooler(
-        "{}::/resolutions/{}".format(str(mcool_file_path), resolution))
-    cooler_matrix_selector: cooler.api.RangeSelector2D = cooler_file.matrix(
-        field='count', balance=False)
-    cooler_dense: np.ndarray = cooler_matrix_selector[start_row_incl:end_row_excl,
-                                                      start_col_incl:end_col_excl]
-    with hict_file_lock.gen_rlock():
-        my_dense = ContactMatrixFacet.get_dense_submatrix(
-            hict_file,
-            resolution,
-            start_row_incl,
-            start_col_incl,
-            end_row_excl,
-            end_col_excl,
-            units=QueryLengthUnit.BINS,
-            exclude_hidden_contigs=False
-        )[0]
-    my_dense = np.pad(my_dense, [(0, query_size-my_dense.shape[0]), (0,
-                      query_size-my_dense.shape[1])], mode='constant', constant_values=0)
-    assert (
-        my_dense.shape == (query_size, query_size)
-    ), f"Matrix shape {my_dense.shape} should be equal to that of query: {(query_size, query_size)}, whereas cooler returned {cooler_dense.shape}"
-    if not np.array_equal(cooler_dense, my_dense):
-        again_my_dense = ContactMatrixFacet.get_dense_submatrix(
-            hict_file,
-            resolution,
-            start_row_incl,
-            start_col_incl,
-            end_row_excl,
-            end_col_excl,
-            units=QueryLengthUnit.BINS,
-            exclude_hidden_contigs=False
-        )[0]
-        assert np.array_equal(
-            my_dense, again_my_dense), "Non-determinism in query results detected??"
-    assert (
-        np.array_equal(cooler_dense, my_dense)
-    ), "Dense square submatrices returned by Cooler and HiCT should be equal"
-    del cooler_dense
-    del my_dense
-    del cooler_file
-    hict_file.clear_caches(saved_blocks=True)
-    gc.collect()
-
-
-@settings(
-    max_examples=500,
-    deadline=30000,
-    derandomize=True,
-    report_multiple_bugs=True,
-    suppress_health_check=(
-        HealthCheck.filter_too_much,
-        HealthCheck.data_too_large
-    )
-)
-@given(
-    resolution=st.sampled_from(resolutions_mcool),
-    start_row_incl_bp=st.integers(min_value=0, max_value=total_bp_length),
-    start_col_incl_bp=st.integers(min_value=0, max_value=total_bp_length),
-    query_size_row=st.sampled_from([1, 2, 3, 10, 100, 1000]),
-    query_size_col=st.sampled_from([1, 2, 3, 5, 64, 127, 512])
-)
-def test_compare_rectangular_queries_with_cooler(
-    resolution,
-    start_row_incl_bp,
-    start_col_incl_bp,
-    query_size_row,
-    query_size_col
-):
-    return compare_rectangular_queries_with_cooler(
-        resolution,
-        start_row_incl_bp,
-        start_col_incl_bp,
-        query_size_row,
-        query_size_col
-    )
-
-
-@settings(
-    max_examples=500,
-    deadline=30000,
-    derandomize=True,
-    report_multiple_bugs=True,
-    suppress_health_check=(
-        HealthCheck.filter_too_much,
-        HealthCheck.data_too_large
-    )
-)
-@given(
-    resolution=st.sampled_from(resolutions_mcool),
-    start_row_incl_bp=st.integers(min_value=0, max_value=total_bp_length),
-    start_col_incl_bp=st.integers(min_value=0, max_value=total_bp_length),
-    query_size_row=st.sampled_from([1, 2, 3, 5]),
-    query_size_col=st.sampled_from([1, 2, 3, 5])
-)
-def test_compare_small_rectangular_queries_with_cooler(
-    resolution,
-    start_row_incl_bp,
-    start_col_incl_bp,
-    query_size_row,
-    query_size_col
-):
-    return compare_rectangular_queries_with_cooler(
-        resolution,
-        start_row_incl_bp,
-        start_col_incl_bp,
-        query_size_row,
-        query_size_col
-    )
-
-
-def compare_rectangular_queries_with_cooler(
-    resolution,
-    start_row_incl_bp,
-    start_col_incl_bp,
-    query_size_row,
-    query_size_col
-):
-    matrix_size_bins = ContactMatrixFacet.get_matrix_size_bins(
-        hict_file, resolution)
-    start_row_incl = (start_row_incl_bp // resolution) % matrix_size_bins
-    start_col_incl = (start_col_incl_bp // resolution) % matrix_size_bins
-    end_row_excl = start_row_incl + query_size_row
-    end_col_excl = start_col_incl + query_size_col
-    if start_row_incl > end_row_excl:
-        start_row_incl, end_row_excl = end_row_excl, start_row_incl
-    if start_col_incl > end_col_excl:
-        start_col_incl, end_col_excl = end_col_excl, start_col_incl
-    cooler_file: cooler.Cooler = cooler.Cooler(
-        "{}::/resolutions/{}".format(str(mcool_file_path), resolution))
-    cooler_matrix_selector: cooler.api.RangeSelector2D = cooler_file.matrix(
-        field='count', balance=False)
-    cooler_dense: np.ndarray = cooler_matrix_selector[start_row_incl:end_row_excl,
-                                                      start_col_incl:end_col_excl]
-    with hict_file_lock.gen_rlock():
-        my_dense = ContactMatrixFacet.get_dense_submatrix(
-            hict_file,
-            resolution,
-            start_row_incl,
-            start_col_incl,
-            end_row_excl,
-            end_col_excl,
-            units=QueryLengthUnit.BINS,
-            exclude_hidden_contigs=False
-        )[0]
-    my_dense = np.pad(my_dense, [(0, query_size_row-my_dense.shape[0]), (0,
-                      query_size_col-my_dense.shape[1])], mode='constant', constant_values=0)
-    assert (
-        my_dense.shape == (query_size_row, query_size_col)
-    ), f"Matrix shape {my_dense.shape} should be equal to that of query: {(query_size_row, query_size_col)}, whereas cooler returned {cooler_dense.shape}"
-    assert (
-        np.array_equal(cooler_dense, my_dense)
-    ), "Dense rectangular submatrices returned by Cooler and HiCT should be equal"
-    del cooler_dense
-    del my_dense
-    del cooler_file
-    hict_file.clear_caches(saved_blocks=True)
-    gc.collect()
-
-
-@settings(
-    max_examples=500,
-    deadline=30000,
-    derandomize=True,
-    report_multiple_bugs=True,
-    suppress_health_check=(
-        HealthCheck.filter_too_much,
-        HealthCheck.data_too_large
-    )
-)
-@given(
-    resolution=st.sampled_from(resolutions_mcool),
-    start_row_incl_bp=st.integers(min_value=0, max_value=total_bp_length),
-    start_col_incl_bp=st.integers(min_value=0, max_value=total_bp_length),
-    end_row_excl_bp=st.integers(min_value=0, max_value=total_bp_length),
-    end_col_excl_bp=st.integers(min_value=0, max_value=total_bp_length)
-)
-def test_hict_file_should_be_symmetric(
-    resolution,
-    start_row_incl_bp,
-    start_col_incl_bp,
-    end_row_excl_bp,
-    end_col_excl_bp,
-):
-    matrix_size_bins = ContactMatrixFacet.get_matrix_size_bins(
-        hict_file,
-        resolution
-    )
-    start_row_incl = (start_row_incl_bp // resolution) % matrix_size_bins
-    start_col_incl = (start_col_incl_bp // resolution) % matrix_size_bins
-    end_row_excl = (end_row_excl_bp // resolution) % matrix_size_bins
-    end_col_excl = (end_col_excl_bp // resolution) % matrix_size_bins
-    if start_row_incl > end_row_excl:
-        start_row_incl, end_row_excl = end_row_excl, start_row_incl
-    if start_col_incl > end_col_excl:
-        start_col_incl, end_col_excl = end_col_excl, start_col_incl
-    if end_row_excl - start_row_incl > 2048:
-        end_row_excl = start_row_incl + \
-            ((end_row_excl - start_row_incl) % 2048)
-    if end_col_excl - start_col_incl > 2048:
-        end_col_excl = start_col_incl + \
-            ((end_col_excl - start_col_incl) % 2048)
-    with hict_file_lock.gen_rlock():
-        plain_dense = ContactMatrixFacet.get_dense_submatrix(
-            hict_file,
-            resolution,
-            start_row_incl,
-            start_col_incl,
-            end_row_excl,
-            end_col_excl,
-            units=QueryLengthUnit.BINS,
-            exclude_hidden_contigs=False
-        )[0]
-        transposed_dense = ContactMatrixFacet.get_dense_submatrix(
-            hict_file,
-            resolution,
-            start_col_incl,
-            start_row_incl,
-            end_col_excl,
-            end_row_excl,
-            units=QueryLengthUnit.BINS,
-            exclude_hidden_contigs=False
-        )[0]
-    assert (
-        np.array_equal(plain_dense, transposed_dense.T)
-    ), "HiC contact matrix returned by HiCT should be symmetric"
-    del plain_dense
-    del transposed_dense
-    hict_file.clear_caches(saved_blocks=True)
-    gc.collect()
+        expected_descriptors == actual_descriptors
+    ), "Not all descriptors are present after building tree??"
