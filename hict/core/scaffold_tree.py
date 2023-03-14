@@ -1,4 +1,5 @@
 import multiprocessing
+import multiprocessing.managers
 import threading
 import random
 import sys
@@ -132,6 +133,32 @@ class ScaffoldTree(object):
                 )
                 new_t.right = t1
                 return new_t.update_sizes(), t2
+            
+        @staticmethod
+        def leftmost(
+            node: Optional['ScaffoldTree.Node']
+        ) -> Optional['ScaffoldTree.Node']:
+            if node is None:
+                return None
+            (left, right) = (node.left, node.right)
+            if node.needs_changing_direction:
+                (left, right) = (right, left)
+            if left is None:
+                return node
+            return ScaffoldTree.Node.leftmost(left)
+        
+        @staticmethod
+        def rightmost(
+            node: Optional['ScaffoldTree.Node']
+        ) -> Optional['ScaffoldTree.Node']:
+            if node is None:
+                return None
+            (left, right) = (node.left, node.right)
+            if node.needs_changing_direction:
+                (left, right) = (right, left)
+            if right is None:
+                return node
+            return ScaffoldTree.Node.rightmost(right)
 
         @staticmethod
         def merge(
