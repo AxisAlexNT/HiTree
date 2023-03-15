@@ -40,7 +40,7 @@ def build_tree(
 
 
 @settings(
-    max_examples=1000,
+    max_examples=10000,
     deadline=30000,
     derandomize=True,
     report_multiple_bugs=True,
@@ -120,7 +120,7 @@ def test_build_tree(
     ), "Not all descriptors are present after building tree??"
 
 @settings(
-    max_examples=1000,
+    max_examples=10000,
     deadline=30000,
     derandomize=True,
     report_multiple_bugs=True,
@@ -174,7 +174,7 @@ def test_split_tree(
     left_size = min(left_size, total_assembly_length)
     
     with tree.root_lock.gen_rlock():
-        (l, r) = ScaffoldTree.Node.split_bp(tree.root, np.int64(left_size), include_equal_to_the_left=False)
+        (l, r) = ScaffoldTree.Node.split_bp(tree.root, np.int64(left_size), include_equal_to_the_left=True)
         
     ls = (l.subtree_length_bp if l is not None else np.int64(0))
     
@@ -182,7 +182,7 @@ def test_split_tree(
     
     if rightmost is not None and rightmost.scaffold_descriptor is not None:
         assert (
-            ls <= left_size
+            ls >= left_size
         ), "Split size is greater than expected??"
     else:
         assert (
