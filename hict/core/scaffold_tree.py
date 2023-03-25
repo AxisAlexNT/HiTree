@@ -46,14 +46,14 @@ class ScaffoldTree(object):
             self.right = right
             self.needs_changing_direction = needs_changing_direction
             self.subtree_length_bp = length_bp
-            self.subtree_scaffolds_count = (np.int64(0) if self.scaffold_descriptor is None else np.int64(1))
+            self.subtree_scaffolds_count = (
+                np.int64(0) if self.scaffold_descriptor is None else np.int64(1))
             if self.left is not None:
                 self.subtree_length_bp += self.left.subtree_length_bp
                 self.subtree_scaffolds_count += self.left.subtree_scaffolds_count
             if self.right is not None:
                 self.subtree_length_bp += self.right.subtree_length_bp
                 self.subtree_scaffolds_count += self.right.subtree_scaffolds_count
-            
 
         @staticmethod
         def clone_node(node: 'ScaffoldTree.Node') -> 'ScaffoldTree.Node':
@@ -81,7 +81,8 @@ class ScaffoldTree(object):
         def update_sizes(self) -> 'ScaffoldTree.Node':
             new_node = self.clone()
             new_node.subtree_length_bp = new_node.length_bp
-            new_node.subtree_scaffolds_count = (np.int64(0) if new_node.scaffold_descriptor is None else np.int64(1))
+            new_node.subtree_scaffolds_count = (
+                np.int64(0) if new_node.scaffold_descriptor is None else np.int64(1))
             if new_node.left is not None:
                 new_node.subtree_length_bp += new_node.left.subtree_length_bp
                 new_node.subtree_scaffolds_count += new_node.left.subtree_scaffolds_count
@@ -144,7 +145,7 @@ class ScaffoldTree(object):
                 )
                 new_t.right = t1
                 return new_t.update_sizes(), t2
-            
+
         @staticmethod
         def leftmost(
             node: Optional['ScaffoldTree.Node']
@@ -157,7 +158,7 @@ class ScaffoldTree(object):
             if left is None:
                 return node
             return ScaffoldTree.Node.leftmost(left)
-        
+
         @staticmethod
         def rightmost(
             node: Optional['ScaffoldTree.Node']
@@ -187,7 +188,8 @@ class ScaffoldTree(object):
 
             if t1.y_priority > t2.y_priority:
                 t1.right = ScaffoldTree.Node.merge(t1.right, t2)
-                new_t = ScaffoldTree.Node._optimize_empty_space(t1.update_sizes())
+                new_t = ScaffoldTree.Node._optimize_empty_space(
+                    t1.update_sizes())
                 assert new_t is not None
                 assert (
                     new_t.subtree_length_bp == (old_t1_length + old_t2_length)
@@ -195,7 +197,8 @@ class ScaffoldTree(object):
                 return new_t
             else:
                 t2.left = ScaffoldTree.Node.merge(t1, t2.left)
-                new_t = ScaffoldTree.Node._optimize_empty_space(t2.update_sizes())
+                new_t = ScaffoldTree.Node._optimize_empty_space(
+                    t2.update_sizes())
                 assert new_t is not None
                 assert (
                     new_t.subtree_length_bp == (old_t1_length + old_t2_length)
@@ -235,7 +238,8 @@ class ScaffoldTree(object):
             from_bp: np.int64,
             to_bp: np.int64
         ) -> 'ScaffoldTree.ExposedSegment':
-            total_length = t.subtree_length_bp if t is not None else np.int64(0)
+            total_length = t.subtree_length_bp if t is not None else np.int64(
+                0)
             to_bp = min(to_bp, total_length)
             from_bp = max(np.int64(0), from_bp)
             le, gr = ScaffoldTree.Node.split_bp(
@@ -246,22 +250,25 @@ class ScaffoldTree(object):
             ), "Less-or-equal part does not end where desired??"
             ls, sg = ScaffoldTree.Node.split_bp(
                 le, from_bp, include_equal_to_the_left=True)
-            less_size = (ls.subtree_length_bp if ls is not None else np.int64(0))
-            segment_size = (sg.subtree_length_bp if sg is not None else np.int64(0))
-            greater_size = (gr.subtree_length_bp if gr is not None else np.int64(0))
-            
+            less_size = (
+                ls.subtree_length_bp if ls is not None else np.int64(0))
+            segment_size = (
+                sg.subtree_length_bp if sg is not None else np.int64(0))
+            greater_size = (
+                gr.subtree_length_bp if gr is not None else np.int64(0))
+
             # assert (
             #     less_size == from_bp
             # ), "Less size is not as requested??"
-            
+
             # assert (
             #     (less_size + segment_size) == to_bp
             # ), "Less+Segment do not end as desired??"
-            
+
             assert (
                 (less_size + segment_size + greater_size) == total_length
             ), "Exposed segments do not sum up to the total length??"
-            
+
             return ScaffoldTree.ExposedSegment(
                 ls,
                 sg,
@@ -328,6 +335,7 @@ class ScaffoldTree(object):
         scaffold_descriptor: ScaffoldDescriptor
     ) -> None:
         with self.root_lock.gen_wlock():
+            self.root_scaffold_id_counter += 1
             old_assembly_length_bp = self.root.subtree_length_bp
             es = ScaffoldTree.Node.expose(
                 self.root, start_bp_incl, end_bp_excl)
@@ -365,10 +373,11 @@ class ScaffoldTree(object):
     def traverse(self, fun: Callable[[Node], None]) -> None:
         with self.root_lock.gen_rlock():
             ScaffoldTree.Node.traverse(self.root, fun)
-            
+
     def get_scaffold_at_bp(self, bp: np.int64) -> Optional[ScaffoldDescriptor]:
         with self.root_lock.gen_rlock():
-            (l, r) = ScaffoldTree.Node.split_bp(self.root, 1+bp, include_equal_to_the_left=True)
+            (l, r) = ScaffoldTree.Node.split_bp(
+                self.root, 1+bp, include_equal_to_the_left=True)
             assert (
                 l is not None
             ), "Scaffold Tree root was None?"
@@ -378,7 +387,7 @@ class ScaffoldTree(object):
             ), "Segment was not none but its rightmost is None"
             scaffold_node: ScaffoldTree.Node
             return scaffold_node.scaffold_descriptor
-        
+
     def unscaffold(self, start_bp: np.int64, end_bp: np.int64) -> None:
         with self.root_lock.gen_wlock():
             old_assembly_length_bp: np.int64 = self.root.subtree_length_bp
@@ -400,12 +409,18 @@ class ScaffoldTree(object):
             assert (
                 new_assembly_length_bp == old_assembly_length_bp
             ), "Assembly length changed after unscaffolding a region?"
-            
+
     def rescaffold(self, start_bp: np.int64, end_bp: np.int64, spacer_length: Optional[int] = 1000) -> ScaffoldDescriptor:
+        if start_bp >= end_bp:
+            start_bp, end_bp = end_bp, start_bp
+
         with self.root_lock.gen_wlock():
             self.root_scaffold_id_counter += 1
             old_assembly_length_bp: np.int64 = self.root.subtree_length_bp
             es = ScaffoldTree.Node.expose(self.root, start_bp, end_bp)
+            assert (
+                es.segment is not None
+            ), "No segment corresponds to the requested borders"
             new_scaffold_descriptor = ScaffoldDescriptor.make_scaffold_descriptor(
                 scaffold_id=self.root_scaffold_id_counter,
                 scaffold_name=f"scaffold_auto_{self.root_scaffold_id_counter}_{datetime.datetime.now().strftime('%d-%M-%Y+%H:%M:%S')}",
@@ -427,56 +442,60 @@ class ScaffoldTree(object):
             new_assembly_length_bp: np.int64 = self.root.subtree_length_bp
             assert (
                 new_assembly_length_bp == old_assembly_length_bp
-            ), "Assembly length changed after unscaffolding a region?"       
+            ), "Assembly length changed after unscaffolding a region?"
             return new_scaffold_descriptor
-        
-        
+
     def extend_borders_to_scaffolds(self, queried_start_bp: np.int64, queried_end_bp: np.int64) -> Tuple[np.int64, Optional[ScaffoldDescriptor], np.int64, Optional[ScaffoldDescriptor]]:
         with self.root_lock.gen_rlock():
             # Extend left border:
-            opt_left_sd: Optional[ScaffoldDescriptor] = self.get_scaffold_at_bp(queried_start_bp)
+            opt_left_sd: Optional[ScaffoldDescriptor] = self.get_scaffold_at_bp(
+                queried_start_bp)
             left_bp: np.int64 = queried_start_bp
-            
+
             if opt_left_sd is not None:
-                l, r = ScaffoldTree.Node.split_bp(self.root, queried_start_bp, include_equal_to_the_left=False)
+                l, r = ScaffoldTree.Node.split_bp(
+                    self.root, queried_start_bp, include_equal_to_the_left=False)
                 left_bp = l.subtree_length_bp
                 left_scaffold = ScaffoldTree.Node.leftmost(r)
                 assert (
                     left_scaffold == opt_left_sd
                 ), "After extension of left selection border to the scaffold border, scaffold became different?"
-                
+
             # Extend right border:
-            opt_right_sd: Optional[ScaffoldDescriptor] = self.get_scaffold_at_bp(queried_end_bp)
+            opt_right_sd: Optional[ScaffoldDescriptor] = self.get_scaffold_at_bp(
+                queried_end_bp)
             right_bp: np.int64 = queried_end_bp
-            
+
             if opt_right_sd is not None:
-                le, _ = ScaffoldTree.Node.split_bp(self.root, queried_start_bp, include_equal_to_the_left=True)
+                le, _ = ScaffoldTree.Node.split_bp(
+                    self.root, queried_start_bp, include_equal_to_the_left=True)
                 right_bp = le.subtree_length_bp
                 right_scaffold = ScaffoldTree.Node.rightmost(le)
                 assert (
                     right_scaffold == opt_right_sd
                 ), "After extension of right selection border to the scaffold border, scaffold became different?"
-                
+
             return left_bp, opt_left_sd, right_bp, opt_right_sd
-        
+
     def move_selection_range(self, queried_start_bp: np.int64, queried_end_bp: np.int64, target_start_bp: np.int64) -> None:
         with self.scaffold_tree.root_lock.gen_wlock():
-         
-            left_bp, _, right_bp, _ = self.extend_borders_to_scaffolds(queried_start_bp, queried_end_bp)
-         
+
+            left_bp, _, right_bp, _ = self.extend_borders_to_scaffolds(
+                queried_start_bp, queried_end_bp)
+
             es = ScaffoldTree.Node.expose(
                 self.root,
                 from_bp=left_bp,
                 to_bp=right_bp
             )
-            
+
             tmp = ScaffoldTree.Node.merge(es.less, es.greater)
             nl, nr = ScaffoldTree.Node.split_bp(
                 t=tmp,
                 lefT_size=target_start_bp,
                 include_equal_to_the_left=False,
             )
-            
+
             self.commit_root(
                 ScaffoldTree.ExposedSegment(
                     nl,
@@ -484,18 +503,19 @@ class ScaffoldTree(object):
                     nr
                 )
             )
-            
+
     def get_scaffold_list(self) -> List[Tuple[ScaffoldDescriptor, ScaffoldBordersBP]]:
-        descriptors: List[Tuple[ScaffoldDescriptor, np.int64, np.int64]] = []
-        
-        position: np.int64 = 0    
-        
-    
+        descriptors: List[Tuple[ScaffoldDescriptor, ScaffoldBordersBP]] = []
+
+        position: np.int64 = 0
+
         def traverse_fn(n: ScaffoldTree.Node) -> None:
+            nonlocal position
             if n.scaffold_descriptor is not None:
-                descriptors.append((n.scaffold_descriptor, ScaffoldBordersBP(position, position+n.length_bp)))
+                descriptors.append(
+                    (n.scaffold_descriptor, ScaffoldBordersBP(position, position+n.length_bp)))
             position += n.length_bp
-        
+
         self.traverse(traverse_fn)
-        
+
         return descriptors

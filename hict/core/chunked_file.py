@@ -1,3 +1,5 @@
+import enum
+import gc
 import threading
 from enum import Enum
 from io import BytesIO
@@ -17,7 +19,7 @@ from HiCT_Library.hict.core.scaffold_tree import ScaffoldTree
 
 from hict.core.AGPProcessor import *
 from hict.core.FASTAProcessor import FASTAProcessor
-from hict.core.common import ATUDescriptor, ATUDirection, StripeDescriptor, ContigDescriptor, ScaffoldDescriptor, ScaffoldBorders, \
+from hict.core.common import ATUDescriptor, ATUDirection, ScaffoldBordersBP, StripeDescriptor, ContigDescriptor, ScaffoldDescriptor, ScaffoldBorders, \
     ScaffoldDirection, FinalizeRecordType, ContigHideType, QueryLengthUnit
 from hict.core.contig_tree import ContigTree
 # from hict.core.stripe_tree import StripeTree
@@ -84,6 +86,7 @@ class ChunkedFile(object):
             lock_factory=lock_factory)
         self.multithreading_pool_size = multithreading_pool_size
         self.scaffold_tree: Optional[ScaffoldTree] = None
+        self.contig_id_to_contig_descriptor: Dict[np.int64, ContigDescriptor] = dict()
 
     def open(self):
         # NOTE: When file is opened in this method, we assert no one writes to it
@@ -197,6 +200,7 @@ class ChunkedFile(object):
 
             for contig_id in ordered_contig_ids:
                 contig_descriptor = contig_id_to_contig_descriptor[contig_id]
+                self.contig_id_to_contig_descriptor[contig_id] = contig_descriptor
                 self.contig_tree.insert_at_position(
                     contig_descriptor,
                     self.contig_tree.get_node_count(),
@@ -700,7 +704,7 @@ class ChunkedFile(object):
                 traverse_fn
             )
 
-            all_atus_debug = copy.deepcopy(atus)
+            # all_atus_debug = copy.deepcopy(atus)
 
             total_exposed_atu_length = sum(
                 map(
@@ -1750,84 +1754,52 @@ class ChunkedFile(object):
         contig_records = agpParser.getAGPContigRecords()
         scaffold_records = agpParser.getAGPScaffoldRecords()
 
-        requestedIdToContigDirection: Dict[np.int64, ContigDirection] = dict()
+        contig_id_to_borders_bp: Dict[np.int64, Tuple[np.int64, np.int64]] = dict()
+        position: np.int64 = np.int64(0)
 
-        for contig_record in contig_records:
-            contig_id = self.contig_name_to_contig_id[contig_record.name]
-            requestedIdToContigDirection[contig_id] = contig_record.direction
+        with self.contig_tree.root_lock.gen_wlock():
+            self.contig_tree.root = None    
+
+            for i, contig_record in enumerate(contig_records):
+                contig_id = self.contig_name_to_contig_id[contig_record.name]
+                contig_descriptor = self.contig_id_to_contig_descriptor[contig_id]
+                self.contig_tree.insert_at_position(
+                    contig_descriptor,
+                    i,
+                    direction=contig_record.direction,
+                    update_tree=False
+                )
+                contig_id_to_borders_bp[contig_id] = (position, position+contig_descriptor.contig_length_at_resolution[0])
 
         contigIdsToBeRotated: List[np.int64] = []
 
-        def traverse_directions(n: ContigTree.Node) -> None:
-            if n.contig_descriptor.direction != requestedIdToContigDirection[n.contig_descriptor.contig_id]:
-                contigIdsToBeRotated.append(n.contig_descriptor.contig_id)
-
-        # Clear previous scaffolds info to rotate segments
-        if self.contig_tree.root is not None:
-            self.contig_tree.root.contig_descriptor.scaffold_id = None
-            self.contig_tree.root.needs_updating_scaffold_id_in_subtree = True
-
-        #self.scaffold_holder.clear()
         old_scaffold_tree = self.scaffold_tree
         with old_scaffold_tree.root_lock.gen_rlock():
-            self.scaffold_tree = ScaffoldTree(self.scaffold_tree.root.update_sizes().subtree_length_bp, self.mp_manager)
-        del old_scaffold_tree
-
-        self.contig_tree.traverse(traverse_directions)
-
-        for contig_order, contig_record in enumerate(contig_records):
-            contig_id = self.contig_name_to_contig_id[contig_record.name]
-            try:
-                self.move_selection_range(contig_id, contig_id, contig_order)
-            except AssertionError as e:
-                # raise e
-                self.move_selection_range(contig_id, contig_id, contig_order)
-
-        for contig_id in contigIdsToBeRotated:
-            self.reverse_selection_range(contig_id, contig_id)
-
-
-        # TODO: Build scaffold tree
-        for scaffold_record in scaffold_records:
-            start_contig_id: np.int64 = self.contig_name_to_contig_id[scaffold_record.start_ctg]
-            end_contig_id: np.int64 = self.contig_name_to_contig_id[scaffold_record.end_ctg]
-            sd: ScaffoldDescriptor = self.scaffold_holder.create_scaffold(
-                scaffold_record.name, scaffold_borders=ScaffoldBorders(
-                    start_contig_id,
-                    end_contig_id
+            self.scaffold_tree = ScaffoldTree(old_scaffold_tree.root.update_sizes().subtree_length_bp, self.mp_manager)
+            for scaffold_ord, scaffold_record in enumerate(scaffold_records):
+                start_contig_id: np.int64 = self.contig_name_to_contig_id[scaffold_record.start_ctg]
+                end_contig_id: np.int64 = self.contig_name_to_contig_id[scaffold_record.end_ctg]
+                scaffold_start_bp=contig_id_to_borders_bp[start_contig_id][0]
+                scaffold_end_bp=contig_id_to_borders_bp[end_contig_id][1]
+                sd = ScaffoldDescriptor.make_scaffold_descriptor(
+                    scaffold_ord,
+                    scaffold_record.name
                 )
-            )
-            _, start_order = self.contig_tree.get_contig_order(start_contig_id)
-            _, end_order = self.contig_tree.get_contig_order(end_contig_id)
-            es: ContigTree.ExposedSegment = self.contig_tree.expose_segment_by_count(
-                start_order, end_order)
-            es.segment.contig_descriptor.scaffold_id = sd.scaffold_id
-            es.segment.needs_updating_scaffold_id_in_subtree = True
-            self.contig_tree.commit_exposed_segment(es)
+                self.scaffold_tree.add_scaffold(scaffold_start_bp, scaffold_end_bp, sd)
+        gc.collect()
+                
 
     def get_agp_for_assembly(self, writable_stream) -> None:
         agp_export_processor: AGPExporter = AGPExporter()
 
-        ordered_contig_descriptors: List[ContigDescriptor] = []
+        ordered_contig_descriptors: List[Tuple[ContigDescriptor, ContigDirection]] = self.contig_tree.get_contig_list()
 
-        def traverse_fn(node: ContigTree.Node) -> None:
-            ordered_contig_descriptors.append(node.contig_descriptor)
-
-        self.contig_tree.traverse(traverse_fn)
-        
-
-        scaffold_table: Dict[np.int64, ScaffoldDescriptor] = dict()
-        
-        def traverse_fn(n: ScaffoldTree.Node) -> None:
-            if n.scaffold_descriptor is not None:
-                scaffold_table[n.scaffold_descriptor.scaffold_id] = n.scaffold_descriptor
-        
-        self.scaffold_tree.traverse(traverse_fn)
+        scaffold_list: List[Tuple[ScaffoldDescriptor, ScaffoldBordersBP]] = self.scaffold_tree.get_scaffold_list()
 
         agp_export_processor.exportAGP(
             writable_stream,
             ordered_contig_descriptors,
-            scaffold_table, #self.scaffold_holder.scaffold_table
+            scaffold_list,
         )
 
     def get_contig_descriptors_in_range(
