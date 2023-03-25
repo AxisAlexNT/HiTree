@@ -31,9 +31,9 @@ class ContigHideType(Enum):
     FORCED_SHOWN = 3
 
 
-class ScaffoldBorders(RecordClass):
-    start_contig_id: np.int64
-    end_contig_id: np.int64
+class ScaffoldBordersBP(RecordClass):
+    start_bp: np.int64
+    end_bp: np.int64
 
 
 class LocationInAssembly(NamedTuple):

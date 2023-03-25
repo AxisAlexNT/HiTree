@@ -9,6 +9,8 @@ from readerwriterlock import rwlock
 import numpy as np
 import datetime
 
+from HiCT_Library.hict.core.common import ScaffoldBordersBP
+
 
 class ScaffoldTree(object):
     class ExposedSegment(NamedTuple):
@@ -482,3 +484,18 @@ class ScaffoldTree(object):
                     nr
                 )
             )
+            
+    def get_scaffold_list(self) -> List[Tuple[ScaffoldDescriptor, ScaffoldBordersBP]]:
+        descriptors: List[Tuple[ScaffoldDescriptor, np.int64, np.int64]] = []
+        
+        position: np.int64 = 0    
+        
+    
+        def traverse_fn(n: ScaffoldTree.Node) -> None:
+            if n.scaffold_descriptor is not None:
+                descriptors.append((n.scaffold_descriptor, ScaffoldBordersBP(position, position+n.length_bp)))
+            position += n.length_bp
+        
+        self.traverse(traverse_fn)
+        
+        return descriptors
