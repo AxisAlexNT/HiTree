@@ -352,3 +352,17 @@ class ScaffoldTree(object):
     def traverse(self, fun: Callable[[Node], None]) -> None:
         with self.root_lock.gen_rlock():
             ScaffoldTree.Node.traverse(self.root, fun)
+            
+    def get_scaffold_at_bp(self, bp: np.int64) -> Optional[ScaffoldDescriptor]:
+        with self.root_lock.gen_rlock():
+            (l, r) = ScaffoldTree.Node.split_bp(self.root, 1+bp, include_equal_to_the_left=True)
+            assert (
+                l is not None
+            ), "Scaffold Tree root was None?"
+            scaffold_node = ScaffoldTree.Node.rightmost(l)
+            assert (
+                scaffold_node is not None
+            ), "Segment was not none but its rightmost is None"
+            scaffold_node: ScaffoldTree.Node
+            return scaffold_node.scaffold_descriptor
+            

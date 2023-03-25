@@ -28,14 +28,14 @@ def build_tree(
             sum(scaffold_lengths)+sum(empty_space_lengths)),
         mp_manager=mp_manager
     )
-    last_pos: np.int64 = np.int64(0)
+    last_pos: np.int64 = np.int64(empty_space_lengths[0])
     for i, sd in enumerate(scaffold_descriptors):
         tree.add_scaffold(
-            last_pos+empty_space_lengths[i],
-            last_pos+empty_space_lengths[i]+scaffold_lengths[i],
+            last_pos,
+            last_pos+scaffold_lengths[i],
             sd
         )
-        last_pos += empty_space_lengths[i]+scaffold_lengths[i]
+        last_pos += scaffold_lengths[i]+empty_space_lengths[1+i]
     return tree
 
 
@@ -188,4 +188,88 @@ def test_split_tree(
         assert (
             ls == left_size
         ), "Split size is not equal to requested when it ends not with scaffold??"
+    
+    
+
+@settings(
+    max_examples=10000,
+    deadline=30000,
+    derandomize=True,
+    report_multiple_bugs=True,
+    suppress_health_check=(
+        HealthCheck.filter_too_much,
+        HealthCheck.data_too_large
+    )
+)
+@given(
+    scaffold_descriptors=st.lists(
+        st.builds(
+            ScaffoldDescriptor.make_scaffold_descriptor,
+            scaffold_id=st.integers(0, 10000),
+            scaffold_name=st.text(max_size=10),
+            spacer_length=st.integers(min_value=500, max_value=501),
+        ),
+        unique_by=(lambda sd: sd.scaffold_id),
+        max_size=10,
+    ),
+    scaffold_size_bound=st.integers(min_value=2, max_value=100),
+    empty_size_bound=st.integers(min_value=2, max_value=100),
+)
+def test_get_scaffold_at_bp(
+    scaffold_descriptors: List[ScaffoldDescriptor],
+    scaffold_size_bound: int,
+    empty_size_bound: int,
+):
+    scaffold_lengths = list(np.random.randint(
+        1,
+        scaffold_size_bound,
+        size=len(scaffold_descriptors),
+        dtype=np.int64)
+    )
+    empty_space_lengths = list(np.random.randint(
+        0,
+        empty_size_bound,
+        size=1+len(scaffold_descriptors),
+        dtype=np.int64
+    ))
+
+    tree = build_tree(
+        scaffold_descriptors=scaffold_descriptors,
+        scaffold_lengths=scaffold_lengths,
+        empty_space_lengths=empty_space_lengths,
+        mp_manager=None
+    )
+
+    total_assembly_length = sum(scaffold_lengths)+sum(empty_space_lengths)
+    
+    position_bp: np.int64 = np.int64(0)
+    
+    for i, (sd, sl, el) in enumerate(
+        zip(
+            scaffold_descriptors,
+            scaffold_lengths,
+            empty_space_lengths[:-1],
+        )
+    ):
+        if el > 0:
+            ns = tree.get_scaffold_at_bp(position_bp)
+            assert (
+                ns is None
+            ), "Empty position should not contain a scaffold"
+        position_bp += el
+        if sl > 0:
+            sn = tree.get_scaffold_at_bp(position_bp)
+            assert (
+                sn is not None
+            ), "Scaffold descriptor should be present"
+            assert (
+                sn.scaffold_id == sd.scaffold_id
+            ), "The same scaffold should be there"
+        position_bp += sl
+        rn = tree.get_scaffold_at_bp(position_bp)
+        assert (
+            (rn is None)
+            or
+            (rn.scaffold_id != sd.scaffold_id)
+        ), "Right border should not be included to the scaffold"
     
