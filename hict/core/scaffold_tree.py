@@ -7,6 +7,7 @@ from typing import Callable, List, NamedTuple, Optional, Tuple
 from hict.core.common import ScaffoldDescriptor
 from readerwriterlock import rwlock
 import numpy as np
+import datetime
 
 
 class ScaffoldTree(object):
@@ -271,6 +272,7 @@ class ScaffoldTree(object):
 
     root: Node
     root_lock: rwlock.RWLockWrite
+    root_scaffold_id_counter: np.int64
 
     def __init__(
         self,
@@ -295,6 +297,7 @@ class ScaffoldTree(object):
         else:
             lock_factory = threading.RLock
         self.root_lock = rwlock.RWLockWrite(lock_factory=lock_factory)
+        self.scaffold_id_counter = np.int64(0)
 
     def commit_root(
         self,
@@ -365,4 +368,109 @@ class ScaffoldTree(object):
             ), "Segment was not none but its rightmost is None"
             scaffold_node: ScaffoldTree.Node
             return scaffold_node.scaffold_descriptor
+        
+    def unscaffold(self, start_bp: np.int64, end_bp: np.int64) -> None:
+        with self.root_lock.gen_wlock():
+            old_assembly_length_bp: np.int64 = self.root.subtree_length_bp
+            es = ScaffoldTree.Node.expose(self.root, start_bp, end_bp)
+            empty_node = ScaffoldTree.Node(
+                length_bp=es.segment.subtree_length_bp,
+                scaffold_descriptor=None,
+                y_priority=es.segment.y_priority,
+                left=None,
+                right=None,
+                needs_changing_direction=False
+            )
+            self.commit_root(ScaffoldTree.ExposedSegment(
+                less=es.less,
+                segment=empty_node,
+                greater=es.greater
+            ))
+            new_assembly_length_bp: np.int64 = self.root.subtree_length_bp
+            assert (
+                new_assembly_length_bp == old_assembly_length_bp
+            ), "Assembly length changed after unscaffolding a region?"
             
+    def rescaffold(self, start_bp: np.int64, end_bp: np.int64, spacer_length: Optional[int] = 1000) -> ScaffoldDescriptor:
+        with self.root_lock.gen_wlock():
+            self.root_scaffold_id_counter += 1
+            old_assembly_length_bp: np.int64 = self.root.subtree_length_bp
+            es = ScaffoldTree.Node.expose(self.root, start_bp, end_bp)
+            new_scaffold_descriptor = ScaffoldDescriptor.make_scaffold_descriptor(
+                scaffold_id=self.root_scaffold_id_counter,
+                scaffold_name=f"scaffold_auto_{self.root_scaffold_id_counter}_{datetime.datetime.now().strftime('%d-%M-%Y+%H:%M:%S')}",
+                spacer_length=spacer_length
+            )
+            new_scaffold_node = ScaffoldTree.Node(
+                length_bp=es.segment.subtree_length_bp,
+                scaffold_descriptor=new_scaffold_descriptor,
+                y_priority=es.segment.y_priority,
+                left=None,
+                right=None,
+                needs_changing_direction=False
+            )
+            self.commit_root(ScaffoldTree.ExposedSegment(
+                less=es.less,
+                segment=new_scaffold_node,
+                greater=es.greater
+            ))
+            new_assembly_length_bp: np.int64 = self.root.subtree_length_bp
+            assert (
+                new_assembly_length_bp == old_assembly_length_bp
+            ), "Assembly length changed after unscaffolding a region?"       
+            return new_scaffold_descriptor
+        
+        
+    def extend_borders_to_scaffolds(self, queried_start_bp: np.int64, queried_end_bp: np.int64) -> Tuple[np.int64, Optional[ScaffoldDescriptor], np.int64, Optional[ScaffoldDescriptor]]:
+        with self.root_lock.gen_rlock():
+            # Extend left border:
+            opt_left_sd: Optional[ScaffoldDescriptor] = self.get_scaffold_at_bp(queried_start_bp)
+            left_bp: np.int64 = queried_start_bp
+            
+            if opt_left_sd is not None:
+                l, r = ScaffoldTree.Node.split_bp(self.root, queried_start_bp, include_equal_to_the_left=False)
+                left_bp = l.subtree_length_bp
+                left_scaffold = ScaffoldTree.Node.leftmost(r)
+                assert (
+                    left_scaffold == opt_left_sd
+                ), "After extension of left selection border to the scaffold border, scaffold became different?"
+                
+            # Extend right border:
+            opt_right_sd: Optional[ScaffoldDescriptor] = self.get_scaffold_at_bp(queried_end_bp)
+            right_bp: np.int64 = queried_end_bp
+            
+            if opt_right_sd is not None:
+                le, _ = ScaffoldTree.Node.split_bp(self.root, queried_start_bp, include_equal_to_the_left=True)
+                right_bp = le.subtree_length_bp
+                right_scaffold = ScaffoldTree.Node.rightmost(le)
+                assert (
+                    right_scaffold == opt_right_sd
+                ), "After extension of right selection border to the scaffold border, scaffold became different?"
+                
+            return left_bp, opt_left_sd, right_bp, opt_right_sd
+        
+    def move_selection_range(self, queried_start_bp: np.int64, queried_end_bp: np.int64, target_start_bp: np.int64) -> None:
+        with self.scaffold_tree.root_lock.gen_wlock():
+         
+            left_bp, _, right_bp, _ = self.extend_borders_to_scaffolds(queried_start_bp, queried_end_bp)
+         
+            es = ScaffoldTree.Node.expose(
+                self.root,
+                from_bp=left_bp,
+                to_bp=right_bp
+            )
+            
+            tmp = ScaffoldTree.Node.merge(es.less, es.greater)
+            nl, nr = ScaffoldTree.Node.split_bp(
+                t=tmp,
+                lefT_size=target_start_bp,
+                include_equal_to_the_left=False,
+            )
+            
+            self.commit_root(
+                ScaffoldTree.ExposedSegment(
+                    nl,
+                    es.segment,
+                    nr
+                )
+            )

@@ -18,7 +18,7 @@ class AtomicVersionCounter:
 
     def get(self) -> np.int64:
         with self.lock.gen_rlock():
-            return version
+            return self.version
 
     def cas(self, expected: np.int64, target: np.int64) -> bool:
         with self.lock.gen_wlock():
