@@ -39,7 +39,7 @@ class ContigTree:
         subtree_length_px: Dict[np.int64, np.int64]
         needs_changing_direction: bool
         needs_updating_scaffold_id_in_subtree: bool
-        parent: Optional['ContigTree.Node']
+        # parent: Optional['ContigTree.Node']
         direction: ContigDirection
         # scaffold_id: Optional[np.int64]
 
@@ -54,7 +54,7 @@ class ContigTree:
             right: Optional['ContigTree.Node'],
             needs_changing_direction: bool,
             # needs_updating_scaffold_id_in_subtree: bool,
-            parent: Optional['ContigTree.Node'],
+            # parent: Optional['ContigTree.Node'],
             direction: ContigDirection,
             # scaffold_id: Optional[np.int64]
         ) -> None:
@@ -72,7 +72,7 @@ class ContigTree:
                                          np.int64] = subtree_length_px
             self.needs_changing_direction: bool = needs_changing_direction
             # self.needs_updating_scaffold_id_in_subtree: bool = needs_updating_scaffold_id_in_subtree
-            self.parent: Optional['ContigTree.Node'] = parent
+            # self.parent: Optional['ContigTree.Node'] = parent
             self.direction = direction
             # self.scaffold_id = scaffold_id
 
@@ -94,7 +94,7 @@ class ContigTree:
                     random.randint(1 - sys.maxsize, sys.maxsize - 1)),
                 left=None,
                 right=None,
-                parent=None,
+                # parent=None,
                 subtree_count=np.int64(1),
                 subtree_length_bins=dict(
                     contig_descriptor.contig_length_at_resolution),
@@ -114,7 +114,7 @@ class ContigTree:
                 subtree_length_px=deepcopy(n.subtree_length_px),
                 left=n.left,
                 right=n.right,
-                parent=n.parent,
+                # parent=n.parent,
                 needs_changing_direction=deepcopy(n.needs_changing_direction),
                 # needs_updating_scaffold_id_in_subtree=deepcopy(
                     # n.needs_updating_scaffold_id_in_subtree),
@@ -159,10 +159,10 @@ class ContigTree:
             new_node = self.clone()
             if new_node.left is not None:
                 new_node.left = new_node.left.clone()
-                new_node.left.parent = self
+                # new_node.left.parent = self
             if new_node.right is not None:
                 new_node.right = new_node.right.clone()
-                new_node.right.parent = self
+                # new_node.right.parent = self
             if new_node.needs_changing_direction:
                 (new_node.left, new_node.right) = (
                     new_node.right, new_node.left)
@@ -257,20 +257,20 @@ class ContigTree:
             (t1, t2) = self.split_node_by_count(new_t.left, k)
             new_t.left = t2
             new_t = new_t.update_sizes()
-            if t1 is not None:
-                t1.parent = None
-            if t2 is not None:
-                t2.parent = new_t
+            # if t1 is not None:
+            #     t1.parent = None
+            # if t2 is not None:
+            #     t2.parent = new_t
             return t1, new_t
         else:
             (t1, t2) = self.split_node_by_count(
                 new_t.right, k - left_count - 1)
             new_t.right = t1
             new_t = new_t.update_sizes()
-            if t1 is not None:
-                t1.parent = new_t
-            if t2 is not None:
-                t2.parent = None
+            # if t1 is not None:
+            #     t1.parent = new_t
+            # if t2 is not None:
+            #     t2.parent = None
             return new_t, t2
 
     def split_node_by_length(
@@ -349,10 +349,10 @@ class ContigTree:
         if new_t.right is not None:
             new_t.right = new_t.right.push().update_sizes()
         new_t = new_t.update_sizes()
-        if new_t.left is not None:
-            new_t.left.parent = new_t
-        if new_t.right is not None:
-            new_t.right.parent = new_t
+        # if new_t.left is not None:
+        #     new_t.left.parent = new_t
+        # if new_t.right is not None:
+        #     new_t.right.parent = new_t
 
         if k <= left_length:
             (t1, t2) = self.split_node_by_length_internal(
@@ -368,9 +368,9 @@ class ContigTree:
             new_t = new_t.push().update_sizes()
             if t1 is not None:
                 t1 = t1.push().update_sizes()
-                t1.parent = None
-            if new_t.left is not None:
-                new_t.left.parent = new_t
+                # t1.parent = None
+            # if new_t.left is not None:
+            #     new_t.left.parent = new_t
             return t1, new_t
         else:
             contig_node_length: np.int64 = (
@@ -389,7 +389,7 @@ class ContigTree:
                     new_t = new_t.push().update_sizes()
                     if t2 is not None:
                         t2 = t2.push().update_sizes()
-                        t2.parent = None
+                        # t2.parent = None
                     return new_t, t2
                 else:
                     t1 = new_t.left
@@ -397,7 +397,7 @@ class ContigTree:
                     new_t = new_t.push().update_sizes()
                     if t1 is not None:
                         t1 = t1.push().update_sizes()
-                        t1.parent = None
+                        # t1.parent = None
                     return t1, new_t
 
             else:
@@ -412,10 +412,10 @@ class ContigTree:
             new_t = new_t.push().update_sizes()
             if t1 is not None:
                 t1 = t1.push().update_sizes()
-                t1.parent = new_t
+                # t1.parent = new_t
             if t2 is not None:
                 t2 = t2.push().update_sizes()
-                t2.parent = None
+                # t2.parent = None
             return new_t, t2
 
     def merge_nodes(self, t1: Optional[Node], t2: Optional[Node]) -> Optional[Node]:
@@ -428,18 +428,18 @@ class ContigTree:
         if new_t1.y_priority > new_t2.y_priority:
             new_t1.right = self.merge_nodes(new_t1.right, new_t2)
             new_t1 = new_t1.update_sizes()
-            if new_t1.left is not None:
-                new_t1.left.parent = new_t1
-            if new_t1.right is not None:
-                new_t1.right.parent = new_t1
+            # if new_t1.left is not None:
+            #     new_t1.left.parent = new_t1
+            # if new_t1.right is not None:
+            #     new_t1.right.parent = new_t1
             return new_t1
         else:
             new_t2.left = self.merge_nodes(new_t1, new_t2.left)
             new_t2 = new_t2.update_sizes()
-            if new_t2.left is not None:
-                new_t2.left.parent = new_t2
-            if new_t2.right is not None:
-                new_t2.right.parent = new_t2
+            # if new_t2.left is not None:
+            #     new_t2.left.parent = new_t2
+            # if new_t2.right is not None:
+            #     new_t2.right.parent = new_t2
             return new_t2
 
     # def get_left_subsize(
@@ -633,7 +633,7 @@ class ContigTree:
                 (l, r) = self.split_node_by_count(self.root, index)
                 new_l: ContigTree.Node = self.merge_nodes(l, new_node)
                 self.root = self.merge_nodes(new_l, r)
-                self.root.parent = None
+                # self.root.parent = None
             else:
                 self.root = new_node
             if update_tree:
@@ -821,14 +821,18 @@ class ContigTree:
                 self.commit_exposed_segment((t_l, t_seg, t_gr))
 
     @staticmethod
-    def traverse_node(t: Optional[Node], f: Callable[[Node], None], check_parent_links: bool = False):
+    def traverse_node(
+        t: Optional[Node], 
+        f: Callable[[Node], None], 
+        # check_parent_links: bool = False
+    ) -> None:
         if t is None:
             return
-        if check_parent_links:
-            assert (t.left is None) or (t.left.parent is
-                                        t), "Left subtree has no parent link"
-            assert (t.right is None) or (t.right.parent is
-                                         t), "Right subtree has no parent link"
+        # if check_parent_links:
+        #     assert (t.left is None) or (t.left.parent is
+        #                                 t), "Left subtree has no parent link"
+        #     assert (t.right is None) or (t.right.parent is
+        #                                  t), "Right subtree has no parent link"
         new_t = t.push()
         ContigTree.traverse_node(new_t.left, f)
         f(new_t)
@@ -850,10 +854,10 @@ class ContigTree:
         new_t.left = new_l
         new_t.right = new_r
         new_new_t = new_t.update_sizes()
-        if new_l is not None:
-            new_l.parent = new_new_t
-        if new_r is not None:
-            new_r.parent = new_new_t
+        # if new_l is not None:
+        #     new_l.parent = new_new_t
+        # if new_r is not None:
+        #     new_r.parent = new_new_t
         self.contig_id_to_node_in_tree[new_new_t.contig_descriptor.contig_id] = new_new_t
         return new_new_t, new_r_pos
 
@@ -896,21 +900,21 @@ class ContigTree:
         resolution: np.int64,
         exclude_hidden: bool,
         f: Callable[[Node], None],
-        check_links: bool = False
+        # check_links: bool = False
     ) -> None:
         if t is None:
             return
-        if check_links:
-            assert (t.left is None) or (t.left.parent is
-                                        t), "Left subtree has no parent link"
-            assert (t.right is None) or (t.right.parent is
-                                         t), "Right subtree has no parent link"
+        # if check_links:
+        #     assert (t.left is None) or (t.left.parent is
+        #                                 t), "Left subtree has no parent link"
+        #     assert (t.right is None) or (t.right.parent is
+        #                                  t), "Right subtree has no parent link"
         ContigTree.traverse_nodes_at_resolution_no_push(
             t.left if not t.needs_changing_direction else t.right,
             resolution,
             exclude_hidden,
             f,
-            check_links
+            # check_links
         )
         if not exclude_hidden or t.contig_descriptor.presence_in_resolution[resolution] in (
                 ContigHideType.AUTO_SHOWN,
@@ -922,7 +926,7 @@ class ContigTree:
             resolution,
             exclude_hidden,
             f,
-            check_links
+            # check_links
         )
 
     @staticmethod
@@ -931,22 +935,22 @@ class ContigTree:
             resolution: np.int64,
             exclude_hidden: bool,
             f: Callable[[Node], None],
-            check_links: bool = False
+            # check_links: bool = False
     ) -> None:
         if t is None:
             return
-        if check_links:
-            assert (t.left is None) or (t.left.parent is
-                                        t), "Left subtree has no parent link"
-            assert (t.right is None) or (t.right.parent is
-                                         t), "Right subtree has no parent link"
+        # if check_links:
+        #     assert (t.left is None) or (t.left.parent is
+        #                                 t), "Left subtree has no parent link"
+        #     assert (t.right is None) or (t.right.parent is
+        #                                  t), "Right subtree has no parent link"
         new_t = t.push()
         ContigTree.traverse_nodes_at_resolution_with_pushes(
             new_t.left,
             resolution,
             exclude_hidden,
             f,
-            check_links
+            # check_links
         )
         if not exclude_hidden or new_t.contig_descriptor.presence_in_resolution[resolution] in (
                 ContigHideType.AUTO_SHOWN,
@@ -958,7 +962,7 @@ class ContigTree:
             resolution,
             exclude_hidden,
             f,
-            check_links
+            # check_links
         )
 
     def traverse(self, f: Callable[[Node], None]):
