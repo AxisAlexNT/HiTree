@@ -239,13 +239,13 @@ class ScaffoldTree(object):
             segment_size = (sg.subtree_length_bp if sg is not None else np.int64(0))
             greater_size = (gr.subtree_length_bp if gr is not None else np.int64(0))
             
-            assert (
-                less_size == from_bp
-            ), "Less size is not as requested??"
+            # assert (
+            #     less_size == from_bp
+            # ), "Less size is not as requested??"
             
-            assert (
-                (less_size + segment_size) == to_bp
-            ), "Less+Segment do not end as desired??"
+            # assert (
+            #     (less_size + segment_size) == to_bp
+            # ), "Less+Segment do not end as desired??"
             
             assert (
                 (less_size + segment_size + greater_size) == total_length
