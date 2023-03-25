@@ -15,12 +15,12 @@ import numpy as np
 # from cachetools.keys import hashkey
 from readerwriterlock import rwlock
 from scipy.sparse import coo_array, csr_array, csc_array
-from HiCT_Library.hict.core.scaffold_tree import ScaffoldTree
+from hict.core.scaffold_tree import ScaffoldTree
 
 from hict.core.AGPProcessor import *
 from hict.core.FASTAProcessor import FASTAProcessor
-from hict.core.common import ATUDescriptor, ATUDirection, ScaffoldBordersBP, StripeDescriptor, ContigDescriptor, ScaffoldDescriptor, ScaffoldBorders, \
-    ScaffoldDirection, FinalizeRecordType, ContigHideType, QueryLengthUnit
+from hict.core.common import ATUDescriptor, ATUDirection, ScaffoldBordersBP, StripeDescriptor, ContigDescriptor, ScaffoldDescriptor, \
+    FinalizeRecordType, ContigHideType, QueryLengthUnit
 from hict.core.contig_tree import ContigTree
 # from hict.core.stripe_tree import StripeTree
 from hict.util.h5helpers import create_dataset_if_not_exists, get_attribute_value_or_create_if_not_exists, \
@@ -86,7 +86,8 @@ class ChunkedFile(object):
             lock_factory=lock_factory)
         self.multithreading_pool_size = multithreading_pool_size
         self.scaffold_tree: Optional[ScaffoldTree] = None
-        self.contig_id_to_contig_descriptor: Dict[np.int64, ContigDescriptor] = dict()
+        self.contig_id_to_contig_descriptor: Dict[np.int64, ContigDescriptor] = dict(
+        )
 
     def open(self):
         # NOTE: When file is opened in this method, we assert no one writes to it
@@ -205,13 +206,12 @@ class ChunkedFile(object):
                     contig_descriptor,
                     self.contig_tree.get_node_count(),
                     direction=contig_id_to_direction[contig_id],
-                    update_tree=False,
-                    scaffold_id=contig_id_to_scaffold_id[contig_id]
                 )
-            self.contig_tree.update_tree()
+            # self.contig_tree.update_tree()
             total_assembly_length_bp = self.contig_tree.root.get_sizes()[0][0]
-            self.scaffold_tree = ScaffoldTree(total_assembly_length_bp, self.mp_manager)
-            # self.restore_scaffolds(f) 
+            self.scaffold_tree = ScaffoldTree(
+                total_assembly_length_bp, self.mp_manager)
+            # self.restore_scaffolds(f)
 
         self.state = ChunkedFile.FileState.OPENED
 
@@ -225,11 +225,11 @@ class ChunkedFile(object):
         #     with self.get_block_intersection_as_dense_matrix.cache_lock(self):
         #         self.get_block_intersection_as_dense_matrix.cache(self).clear()
 
-    # def restore_scaffolds(self, f: h5py.File):        
+    # def restore_scaffolds(self, f: h5py.File):
     #     if 'scaffold_info' not in f['/'].keys():
     #         # No scaffolds are present
     #         return
-        
+
     #     scaffold_info_group: h5py.Group = f['/scaffold_info']
     #     scaffold_name_ds: h5py.Dataset = scaffold_info_group['scaffold_name']
 
@@ -691,12 +691,18 @@ class ChunkedFile(object):
 
             def traverse_fn(node: ContigTree.Node) -> None:
                 contig_atus = node.contig_descriptor.atus[resolution]
-                contig_direction = node.true_direction()
+                contig_direction = node.true_direction()                
                 if contig_direction == ContigDirection.REVERSED:
-                    contig_atus = reversed(contig_atus)
-                atus.extend(contig_atus)
+                    true_contig_atus = []
+                    for atu in reversed(contig_atus):
+                        new_atu = atu.clone()
+                        new_atu.direction = ATUDirection(1-atu.direction.value)
+                        true_contig_atus.append(new_atu)
+                else:
+                    true_contig_atus = contig_atus
+                atus.extend(true_contig_atus)
+                # atus.extend(contig_atus)
 
-            # TODO: maybe no need in push
             ContigTree.traverse_nodes_at_resolution(
                 es.segment,
                 resolution,
@@ -704,7 +710,7 @@ class ChunkedFile(object):
                 traverse_fn
             )
 
-            # all_atus_debug = copy.deepcopy(atus)
+            all_atus_debug = copy.deepcopy(atus)
 
             total_exposed_atu_length = sum(
                 map(
@@ -744,6 +750,12 @@ class ChunkedFile(object):
             )
 
             old_first_atu = atus[index_of_atu_containing_start]
+            
+            assert (
+                old_first_atu.start_index_in_stripe_incl < old_first_atu.end_index_in_stripe_excl
+            ), "Incorrect old first ATU??"
+            
+            
             new_first_atu: ATUDescriptor = old_first_atu.clone()
             new_first_atu.start_index_in_stripe_incl += (
                 delta_px_between_segment_first_contig_start_and_query_start -
@@ -753,13 +765,16 @@ class ChunkedFile(object):
             assert (
                 0 <= new_first_atu.start_index_in_stripe_incl < new_first_atu.stripe_descriptor.stripe_length_bins
             ), "Incorrect first ATU left border??"
+            
+            assert (
+                new_first_atu.start_index_in_stripe_incl < new_first_atu.end_index_in_stripe_excl
+            ), "Incorrect new first ATU??"
 
             atus[index_of_atu_containing_start] = new_first_atu
             atus = atus[index_of_atu_containing_start:]
 
             delta_between_right_px_and_exposed_segment: np.int64 = end_px_excl - \
                 (less_size + segment_size)
-            # TODO: maybe no push
             last_contig_node = es.segment.rightmost()
             reversed_last_contig_atus_prefix_sum = last_contig_node.contig_descriptor.atu_prefix_sum_length_bins[
                 resolution].copy()
@@ -779,6 +794,9 @@ class ChunkedFile(object):
                 deleted_atus_length = reversed_last_contig_atus_prefix_sum[right_offset_atus-1]
 
             old_last_atu = atus[-1]
+            assert (
+                old_last_atu.start_index_in_stripe_incl < old_last_atu.end_index_in_stripe_excl
+            ), "Incorrect old last ATU??"
             new_last_atu = old_last_atu.clone()
             new_last_atu.end_index_in_stripe_excl += (
                 deleted_atus_length + delta_between_right_px_and_exposed_segment)
@@ -786,6 +804,10 @@ class ChunkedFile(object):
                 new_last_atu.stripe_descriptor.stripe_length_bins >= new_last_atu.end_index_in_stripe_excl > new_last_atu.start_index_in_stripe_incl
             ), "Incorrect ATU right border??"
             atus[-1] = new_last_atu
+            
+            assert (
+                new_last_atu.start_index_in_stripe_incl < new_last_atu.end_index_in_stripe_excl
+            ), "Incorrect new last ATU??"
 
             assert all(map(
                 lambda atu: atu.start_index_in_stripe_incl < atu.end_index_in_stripe_excl,
@@ -994,8 +1016,6 @@ class ChunkedFile(object):
     #             borders_bins_start[resolution][0], borders_bins_end[resolution][1])
     #         mt.move_stripes(1+start_bins, end_bins, leftLength[resolution])
     #     self.clear_caches()
-        
-    
 
     def reverse_selection_range_bp(self, queried_start_bp: np.int64, queried_end_bp: np.int64) -> None:
         assert (
@@ -1011,32 +1031,31 @@ class ChunkedFile(object):
                 queried_start_bp,
                 queried_end_bp
             )
-                        
+
             es = self.contig_tree.expose_segment(
                 resolution=np.int64(0),
                 start=left_bp,
                 end=right_bp,
                 units=QueryLengthUnit.BASE_PAIRS
             )
-            
+
             segm = es.segment.clone()
             segm.needs_changing_direction = not segm.needs_changing_direction
-            
-            
+
             self.contig_tree.commit_exposed_segment(
                 ContigTree.ExposedSegment(
                     es.less,
-                    segm,
+                    segm.push(),
                     es.greater
                 )
             )
-                        
+
             self.scaffold_tree.rescaffold(left_bp, right_bp)
         self.clear_caches()
 
     def move_selection_range_bp(
-        self, 
-        queried_start_bp: np.int64, 
+        self,
+        queried_start_bp: np.int64,
         queried_end_bp: np.int64,
         target_start_bp: np.int64
     ) -> None:
@@ -1053,14 +1072,14 @@ class ChunkedFile(object):
                 queried_start_bp,
                 queried_end_bp
             )
-                        
+
             es = self.contig_tree.expose_segment(
                 resolution=np.int64(0),
                 start=left_bp,
                 end=right_bp,
                 units=QueryLengthUnit.BASE_PAIRS
             )
-            
+
             tmp = self.contig_tree.merge_nodes(es.less, es.greater)
             nl, nr = self.contig_tree.split_node_by_length(
                 resolution=0,
@@ -1069,8 +1088,7 @@ class ChunkedFile(object):
                 include_equal_to_the_left=False,
                 units=QueryLengthUnit.BASE_PAIRS
             )
-            
-            
+
             self.contig_tree.commit_exposed_segment(
                 ContigTree.ExposedSegment(
                     nl,
@@ -1078,10 +1096,11 @@ class ChunkedFile(object):
                     nr
                 )
             )
-                        
+
             self.scaffold_tree.rescaffold(left_bp, right_bp)
-            self.scaffold_tree.move_selection_range(left_bp, right_bp, target_start_bp)
-            
+            self.scaffold_tree.move_selection_range(
+                left_bp, right_bp, target_start_bp)
+
         self.clear_caches()
 
     def get_contig_location(self, contig_id: np.int64) -> Tuple[
@@ -1324,19 +1343,19 @@ class ChunkedFile(object):
     #             queried_end_contig_scaffold_id)
     #     self.contig_tree.commit_exposed_segment(es)
     #     self.clear_caches()
-    
+
     def scaffold_segment(
-        self, 
-        query_start_bp: np.int64, 
+        self,
+        query_start_bp: np.int64,
         query_end_bp: np.int64,
-        name: Optional[str] = None, 
+        name: Optional[str] = None,
         spacer_length: int = 1000
     ) -> ScaffoldDescriptor:
         return self.scaffold_tree.rescaffold(query_start_bp, query_end_bp, spacer_length)
-    
+
     def unscaffold_segment(
-        self, 
-        query_start_bp: np.int64, 
+        self,
+        query_start_bp: np.int64,
         query_end_bp: np.int64,
     ) -> None:
         self.scaffold_tree.unscaffold(query_start_bp, query_end_bp)
@@ -1503,7 +1522,7 @@ class ChunkedFile(object):
             contig_descriptor: ContigDescriptor = node.contig_descriptor
             contig_id: np.int64 = contig_descriptor.contig_id
             ordered_contig_ids_list.append(contig_id)
-            s_id = None # contig_descriptor.scaffold_id
+            s_id = None  # contig_descriptor.scaffold_id
             if s_id is None:
                 contig_old_scaffold_id[contig_id] = -1
             else:
@@ -1734,18 +1753,17 @@ class ChunkedFile(object):
 
             # with self.scaffold_tree.root_lock.gen_rlock():
             scaffold_table: Dict[np.int64, ScaffoldDescriptor] = dict()
-            
+
             def traverse_fn(n: ScaffoldTree.Node) -> None:
                 if n.scaffold_descriptor is not None:
                     scaffold_table[n.scaffold_descriptor.scaffold_id] = n.scaffold_descriptor
-            
-            self.scaffold_tree.traverse(traverse_fn)
 
+            self.scaffold_tree.traverse(traverse_fn)
 
             self.fasta_processor.finalize_fasta_for_assembly(
                 writable_stream,
                 ordered_finalization_records,
-                scaffold_table, #self.scaffold_holder.scaffold_table,
+                scaffold_table,  # self.scaffold_holder.scaffold_table,
                 self.contig_names
             )
 
@@ -1754,11 +1772,12 @@ class ChunkedFile(object):
         contig_records = agpParser.getAGPContigRecords()
         scaffold_records = agpParser.getAGPScaffoldRecords()
 
-        contig_id_to_borders_bp: Dict[np.int64, Tuple[np.int64, np.int64]] = dict()
+        contig_id_to_borders_bp: Dict[np.int64,
+                                      Tuple[np.int64, np.int64]] = dict()
         position: np.int64 = np.int64(0)
 
         with self.contig_tree.root_lock.gen_wlock():
-            self.contig_tree.root = None    
+            self.contig_tree.root = None
 
             for i, contig_record in enumerate(contig_records):
                 contig_id = self.contig_name_to_contig_id[contig_record.name]
@@ -1767,34 +1786,36 @@ class ChunkedFile(object):
                     contig_descriptor,
                     i,
                     direction=contig_record.direction,
-                    update_tree=False
+                    # update_tree=False
                 )
-                contig_id_to_borders_bp[contig_id] = (position, position+contig_descriptor.contig_length_at_resolution[0])
-
-        contigIdsToBeRotated: List[np.int64] = []
+                contig_id_to_borders_bp[contig_id] = (
+                    position, position+contig_descriptor.contig_length_at_resolution[0])
 
         old_scaffold_tree = self.scaffold_tree
         with old_scaffold_tree.root_lock.gen_rlock():
-            self.scaffold_tree = ScaffoldTree(old_scaffold_tree.root.update_sizes().subtree_length_bp, self.mp_manager)
+            self.scaffold_tree = ScaffoldTree(
+                old_scaffold_tree.root.update_sizes().subtree_length_bp, self.mp_manager)
             for scaffold_ord, scaffold_record in enumerate(scaffold_records):
                 start_contig_id: np.int64 = self.contig_name_to_contig_id[scaffold_record.start_ctg]
                 end_contig_id: np.int64 = self.contig_name_to_contig_id[scaffold_record.end_ctg]
-                scaffold_start_bp=contig_id_to_borders_bp[start_contig_id][0]
-                scaffold_end_bp=contig_id_to_borders_bp[end_contig_id][1]
+                scaffold_start_bp = contig_id_to_borders_bp[start_contig_id][0]
+                scaffold_end_bp = contig_id_to_borders_bp[end_contig_id][1]
                 sd = ScaffoldDescriptor.make_scaffold_descriptor(
                     scaffold_ord,
                     scaffold_record.name
                 )
-                self.scaffold_tree.add_scaffold(scaffold_start_bp, scaffold_end_bp, sd)
+                self.scaffold_tree.add_scaffold(
+                    scaffold_start_bp, scaffold_end_bp, sd)
         gc.collect()
-                
 
     def get_agp_for_assembly(self, writable_stream) -> None:
         agp_export_processor: AGPExporter = AGPExporter()
 
-        ordered_contig_descriptors: List[Tuple[ContigDescriptor, ContigDirection]] = self.contig_tree.get_contig_list()
+        ordered_contig_descriptors: List[Tuple[ContigDescriptor,
+                                               ContigDirection]] = self.contig_tree.get_contig_list()
 
-        scaffold_list: List[Tuple[ScaffoldDescriptor, ScaffoldBordersBP]] = self.scaffold_tree.get_scaffold_list()
+        scaffold_list: List[Tuple[ScaffoldDescriptor, ScaffoldBordersBP]
+                            ] = self.scaffold_tree.get_scaffold_list()
 
         agp_export_processor.exportAGP(
             writable_stream,

@@ -4,12 +4,10 @@ import threading
 import random
 import sys
 from typing import Callable, List, NamedTuple, Optional, Tuple
-from hict.core.common import ScaffoldDescriptor
+from hict.core.common import ScaffoldDescriptor, ScaffoldBordersBP
 from readerwriterlock import rwlock
 import numpy as np
 import datetime
-
-from HiCT_Library.hict.core.common import ScaffoldBordersBP
 
 
 class ScaffoldTree(object):
@@ -314,7 +312,7 @@ class ScaffoldTree(object):
         else:
             lock_factory = threading.RLock
         self.root_lock = rwlock.RWLockWrite(lock_factory=lock_factory)
-        self.scaffold_id_counter = np.int64(0)
+        self.root_scaffold_id_counter = np.int64(0)
 
     def commit_root(
         self,
@@ -456,7 +454,7 @@ class ScaffoldTree(object):
                 l, r = ScaffoldTree.Node.split_bp(
                     self.root, queried_start_bp, include_equal_to_the_left=False)
                 left_bp = l.subtree_length_bp
-                left_scaffold = ScaffoldTree.Node.leftmost(r)
+                left_scaffold = ScaffoldTree.Node.leftmost(r).scaffold_descriptor
                 assert (
                     left_scaffold == opt_left_sd
                 ), "After extension of left selection border to the scaffold border, scaffold became different?"
@@ -468,9 +466,9 @@ class ScaffoldTree(object):
 
             if opt_right_sd is not None:
                 le, _ = ScaffoldTree.Node.split_bp(
-                    self.root, queried_start_bp, include_equal_to_the_left=True)
+                    self.root, queried_end_bp, include_equal_to_the_left=True)
                 right_bp = le.subtree_length_bp
-                right_scaffold = ScaffoldTree.Node.rightmost(le)
+                right_scaffold = ScaffoldTree.Node.rightmost(le).scaffold_descriptor
                 assert (
                     right_scaffold == opt_right_sd
                 ), "After extension of right selection border to the scaffold border, scaffold became different?"

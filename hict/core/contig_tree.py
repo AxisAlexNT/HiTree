@@ -188,7 +188,10 @@ class ContigTree:
             return new_node
 
         def true_direction(self) -> ContigDirection:
-            return self.direction.value if not self.needs_changing_direction else ContigDirection(1 - self.direction.value)
+            if not self.needs_changing_direction:
+                return self.direction
+            else:
+                return ContigDirection(1 - self.direction.value)
 
         def get_sizes(self, update_sizes: bool = True):
             node: ContigTree.Node = self.update_sizes() if update_sizes else self
@@ -619,14 +622,14 @@ class ContigTree:
         contig_descriptor: ContigDescriptor,
         index: np.int64,
         direction: ContigDirection,
-        update_tree: bool = True
+        # update_tree: bool = True
     ) -> None:
         new_node: ContigTree.Node = ContigTree.Node.make_new_node_from_descriptor(
             contig_descriptor,
             direction=direction,
         )
         with self.root_lock.gen_wlock():
-            self.contig_id_to_node_in_tree[contig_descriptor.contig_id] = new_node
+            # self.contig_id_to_node_in_tree[contig_descriptor.contig_id] = new_node
             if self.root is not None:
                 (l, r) = self.split_node_by_count(self.root, index)
                 new_l: ContigTree.Node = self.merge_nodes(l, new_node)
@@ -634,8 +637,8 @@ class ContigTree:
                 # self.root.parent = None
             else:
                 self.root = new_node
-            if update_tree:
-                self.update_tree()
+            # if update_tree:
+            #     self.update_tree()
 
     def get_sizes(self) -> Tuple[Dict[np.int64, np.int64], np.int64, Dict[np.int64, np.int64]]:
         with self.root_lock.gen_rlock():
@@ -748,7 +751,7 @@ class ContigTree:
         """
         with self.root_lock.gen_rlock():
             total_assembly_length = (
-                self.root.get_sizes()[[1, 0, 2][units.value]][resolution]
+                self.root.get_sizes()[[0, 0, 2][units.value]][resolution]
             ) if self.root is not None else 0
             (t_le, t_gr) = self.split_node_by_length(
                 resolution,
@@ -759,7 +762,7 @@ class ContigTree:
             )
             assert (
                 (t_le is None) or (
-                    t_le.get_sizes()[[1, 0, 2][units.value]][resolution]
+                    t_le.get_sizes()[[0, 0, 2][units.value]][resolution]
                     >=
                     max(0, min(total_assembly_length, end))
                 )
@@ -773,7 +776,7 @@ class ContigTree:
             )
             assert (
                 (t_l is None) or (
-                    t_l.get_sizes()[[1, 0, 2][units.value]][resolution]
+                    t_l.get_sizes()[[0, 0, 2][units.value]][resolution]
                     <=
                     start
                 )
@@ -790,7 +793,7 @@ class ContigTree:
                     ), "Total segment length in bins is less than queried [start, end]??"
                 elif units == QueryLengthUnit.BASE_PAIRS:
                     assert (
-                        t_seg.get_sizes()[1] >= end-start+1
+                        t_seg.get_sizes()[0][0] >= end-start+1
                     ), "Total segment length in bps is less than queried [start, end]??"
 
             return ContigTree.ExposedSegment(t_l, t_seg, t_gr)
@@ -875,7 +878,7 @@ class ContigTree:
         exclude_hidden: bool,
         f: Callable[[Node], None],
         push: bool = True,
-        check_links=False
+        # check_links=False
     ) -> None:
         if push:
             ContigTree.traverse_nodes_at_resolution_with_pushes(
@@ -883,7 +886,7 @@ class ContigTree:
                 resolution,
                 exclude_hidden,
                 f,
-                check_links
+                # check_links
             )
         else:
             ContigTree.traverse_nodes_at_resolution_no_push(
@@ -891,7 +894,7 @@ class ContigTree:
                 resolution,
                 exclude_hidden,
                 f,
-                check_links
+                # check_links
             )
 
     @staticmethod
