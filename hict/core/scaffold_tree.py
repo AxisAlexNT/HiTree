@@ -26,6 +26,7 @@ class ScaffoldTree(object):
         left: Optional['ScaffoldTree.Node']
         right: Optional['ScaffoldTree.Node']
         needs_changing_direction: bool
+        subtree_scaffolds_count: np.int64
 
         def __init__(
             self,
@@ -43,10 +44,14 @@ class ScaffoldTree(object):
             self.right = right
             self.needs_changing_direction = needs_changing_direction
             self.subtree_length_bp = length_bp
+            self.subtree_scaffolds_count = (np.int64(0) if self.scaffold_descriptor is None else np.int64(1))
             if self.left is not None:
                 self.subtree_length_bp += self.left.subtree_length_bp
+                self.subtree_scaffolds_count += self.left.subtree_scaffolds_count
             if self.right is not None:
                 self.subtree_length_bp += self.right.subtree_length_bp
+                self.subtree_scaffolds_count += self.right.subtree_scaffolds_count
+            
 
         @staticmethod
         def clone_node(node: 'ScaffoldTree.Node') -> 'ScaffoldTree.Node':
@@ -74,10 +79,13 @@ class ScaffoldTree(object):
         def update_sizes(self) -> 'ScaffoldTree.Node':
             new_node = self.clone()
             new_node.subtree_length_bp = new_node.length_bp
+            new_node.subtree_scaffolds_count = (np.int64(0) if new_node.scaffold_descriptor is None else np.int64(1))
             if new_node.left is not None:
                 new_node.subtree_length_bp += new_node.left.subtree_length_bp
+                new_node.subtree_scaffolds_count += new_node.left.subtree_scaffolds_count
             if new_node.right is not None:
                 new_node.subtree_length_bp += new_node.right.subtree_length_bp
+                new_node.subtree_scaffolds_count += new_node.right.subtree_scaffolds_count
             return new_node
 
         @staticmethod
