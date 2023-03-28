@@ -35,10 +35,147 @@ def build_tree(
             last_pos+scaffold_lengths[i],
             sd
         )
+        if last_pos > 0:
+            sd_pre = tree.get_scaffold_at_bp(last_pos-1)
+            sd_at = tree.get_scaffold_at_bp(last_pos)
+            sd_next = tree.get_scaffold_at_bp(last_pos+1)
+            sd_preend = tree.get_scaffold_at_bp(last_pos+scaffold_lengths[i]-1)
+            sd_end = tree.get_scaffold_at_bp(last_pos+scaffold_lengths[i])
+            sd_post = tree.get_scaffold_at_bp(last_pos+scaffold_lengths[i]+1)
+            
+            # PRE
+            if not(sd_pre is None or sd_pre != sd):
+                print("Going to fetch that one again")
+                tree.get_scaffold_at_bp(last_pos-1)
+            
+            assert (
+                sd_pre is None or sd_pre != sd
+            ), "Before required scaffold's position there should be no that scaffold"
+            
+            # AT
+            if not((sd_at is not None) and (sd_at == sd)):
+                print("Going to fetch that one again")
+                tree.get_scaffold_at_bp(last_pos)
+            
+            assert (
+                sd_at is not None
+            ), "At starting scaffold position scaffold should be present"
+            
+            assert (
+                sd_at == sd
+            ), "At starting scaffold position should be the added scaffold itself"
+            
+            # NEXT
+            if scaffold_lengths[i] > 1:
+                if not((sd_next is not None) and (sd_next == sd)):
+                    print("Going to fetch that one again")
+                    tree.get_scaffold_at_bp(last_pos+1)
+                
+                assert (
+                    sd_next is not None
+                ), "Scaffold with length>1 should span over the next position from its start"
+                
+                assert (
+                    sd_next == sd
+                ), "Scaffold with length>1 should span itself over the next position from its start"
+            else:
+                if not(sd_next is None or sd_next != sd):
+                    print("Going to fetch that one again")
+                    tree.get_scaffold_at_bp(last_pos+1)
+                
+                assert (
+                    sd_next is None or sd_next != sd
+                ), "Scaffold with length<=1 should not span over the next position from its start"
+                
+            # PRE-END
+            if not((sd_preend is not None) and (sd_preend == sd)):
+                print("Going to fetch that one again")
+                tree.get_scaffold_at_bp(last_pos+last_pos+scaffold_lengths[i]-1)
+            
+            assert (
+                sd_preend is not None
+            ), "Scaffold should cover the position previous to its end"
+            
+            assert (
+                sd_preend == sd
+            ), "Scaffold itself should cover the position previous to its end"
+            
+            # END
+            if not(sd_end is None or sd_pre != sd):
+                print("Going to fetch that one again")
+                tree.get_scaffold_at_bp(last_pos+last_pos+scaffold_lengths[i]-1)
+                
+            assert (
+                sd_end is None or sd_end != sd
+            ), "Since scaffold covers positions [start, start+length), it should not be present at its end bp"
+            
+            # POST
+            if not(sd_post is None or sd_post != sd):
+                print("Going to fetch that one again")
+                tree.get_scaffold_at_bp(last_pos+last_pos+scaffold_lengths[i]+1)
+            
+            assert (
+                sd_post is None or sd_post != sd
+            ), "Since scaffold covers positions [start, start+length), to the right from its end border"
+            
+            
+        if not(tree.get_scaffold_at_bp(last_pos+scaffold_lengths[i]) == None):
+            print("Going to fetch that one again")
+            tree.get_scaffold_at_bp(last_pos+scaffold_lengths[i])
+            
+        assert (
+            tree.get_scaffold_at_bp(last_pos+scaffold_lengths[i]) == None
+        ), "Accoring to the tree insertion algorithm, no scaffolds should be present at the end of the newly added"
+        
+        
+        if not(tree.get_scaffold_at_bp(last_pos+scaffold_lengths[i]+1) == None):
+            print("Going to fetch that one again")
+            tree.get_scaffold_at_bp(last_pos+scaffold_lengths[i]+1)
+        
+        assert (
+            tree.get_scaffold_at_bp(last_pos+scaffold_lengths[i]+1) == None
+        ), "Accoring to the tree insertion algorithm, no scaffolds should be present after the newly added"
+            
         last_pos += scaffold_lengths[i]+empty_space_lengths[1+i]
     return tree
 
 
+@settings(
+    max_examples=10000,
+    deadline=30000,
+    derandomize=True,
+    report_multiple_bugs=False,
+    suppress_health_check=(
+        HealthCheck.filter_too_much,
+        HealthCheck.data_too_large
+    )
+)
+@given(
+    scaffold_descriptors=st.lists(
+        st.builds(
+            ScaffoldDescriptor.make_scaffold_descriptor,
+            scaffold_id=st.integers(0, 10000),
+            scaffold_name=st.text(max_size=10),
+            spacer_length=st.integers(min_value=500, max_value=501),
+        ),
+        max_size=2,
+        unique_by=(lambda sd: sd.scaffold_id)
+    ),
+    scaffold_size_bound=st.integers(min_value=2, max_value=3),
+    empty_size_bound=st.integers(min_value=2, max_value=3)
+)
+def test_build_tree_small(
+    scaffold_descriptors: List[ScaffoldDescriptor],
+    scaffold_size_bound: int,
+    empty_size_bound: int
+):
+    generic_test_build_tree(
+        scaffold_descriptors,
+        scaffold_size_bound,
+        empty_size_bound
+    )
+    
+    
 @settings(
     max_examples=10000,
     deadline=30000,
@@ -63,6 +200,19 @@ def build_tree(
     empty_size_bound=st.integers(min_value=2, max_value=100000)
 )
 def test_build_tree(
+    scaffold_descriptors: List[ScaffoldDescriptor],
+    scaffold_size_bound: int,
+    empty_size_bound: int
+):
+    generic_test_build_tree(
+        scaffold_descriptors,
+        scaffold_size_bound,
+        empty_size_bound
+    )
+    
+    
+
+def generic_test_build_tree(
     scaffold_descriptors: List[ScaffoldDescriptor],
     scaffold_size_bound: int,
     empty_size_bound: int
@@ -118,6 +268,38 @@ def test_build_tree(
     assert (
         expected_descriptors == actual_descriptors
     ), "Not all descriptors are present after building tree??"
+    
+    nodes_index: int = 0
+    
+    for (esl, sdl) in zip(empty_space_lengths[:-1], scaffold_lengths):
+        if esl > 0:
+            assert (
+                nodes[nodes_index].scaffold_descriptor is None
+            ), "Empty space and scaffolds should interleave: empty space case"
+            assert (
+                nodes[nodes_index].length_bp == esl
+            ), "Empty space length should be as requested"
+            nodes_index += 1
+        assert (sdl > 0), "Scaffolds must have non-negative lengths"
+        assert (
+            nodes[nodes_index].scaffold_descriptor is not None
+        ), "Empty space and scaffolds should interleave: scaffold case"
+        assert (
+            nodes[nodes_index].length_bp == sdl
+        ), "Scaffold length should be as requested"
+        nodes_index += 1
+    
+    esl = empty_space_lengths[-1]
+    
+    if esl > 0:
+        assert (
+            nodes[nodes_index].scaffold_descriptor is None
+        ), "Empty space and scaffolds should interleave: empty space case"
+        assert (
+            nodes[nodes_index].length_bp == esl
+        ), "Empty space length should be as requested"
+        nodes_index += 1
+    
 
 @settings(
     max_examples=10000,

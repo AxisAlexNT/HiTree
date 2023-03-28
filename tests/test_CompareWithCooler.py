@@ -26,13 +26,13 @@ def get_lock():
 
 random.seed(int(time.time()))
 
-file_name: str = "mat18_100k.cool"  # "zanu_male_4DN.mcool"
+file_name: str = "zanu_male_4DN.mcool" # "mat18_100k.cool"  # "zanu_male_4DN.mcool"
 
 
 mcool_file_path: Path = Path(
-    ".", "..", "hict_server", "data", file_name).resolve()
+    ".", "..", "HiCT_Server", "data", file_name).resolve()
 hict_file_path: Path = Path(
-    ".", "..", "hict_server", "data", f"{file_name}.hict.hdf5").resolve()
+    ".", "..", "HiCT_Server", "data", f"{file_name}.hict.hdf5").resolve()
 
 if not hict_file_path.is_file():
     pytest.exit(
@@ -72,7 +72,7 @@ def test_resolutions_match():
 
 
 @settings(
-    max_examples=500,
+    max_examples=5000,
     deadline=30000,
     derandomize=True,
     report_multiple_bugs=True,
