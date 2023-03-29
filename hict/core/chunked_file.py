@@ -1096,7 +1096,7 @@ class ChunkedFile(object):
                 )
             )
 
-            self.scaffold_tree.rescaffold(left_bp, right_bp)
+            # self.scaffold_tree.rescaffold(left_bp, right_bp)
         self.clear_caches()
 
     def move_selection_range_bp(
@@ -1143,7 +1143,7 @@ class ChunkedFile(object):
                 )
             )
 
-            self.scaffold_tree.rescaffold(left_bp, right_bp)
+            # self.scaffold_tree.rescaffold(left_bp, right_bp)
             self.scaffold_tree.move_selection_range(
                 left_bp, right_bp, target_start_bp)
 

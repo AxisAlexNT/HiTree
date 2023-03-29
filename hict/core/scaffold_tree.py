@@ -215,20 +215,32 @@ class ScaffoldTree(object):
         ) -> Optional['ScaffoldTree.Node']:
             if t is None or t.scaffold_descriptor is not None:
                 return t
+            
+            old_subtree_length = t.subtree_length_bp
 
             if t.left is not None and t.left.scaffold_descriptor is None:
                 son = t.left
                 if son.right is None:
-                    t.length_bp += son.length_bp
-                    t.left = son.left
+                    new_t = t.clone()
+                    new_t.length_bp += son.length_bp
+                    new_t.left = son.left
+                    t = new_t
 
             if t.right is not None and t.right.scaffold_descriptor is None:
                 son = t.right
                 if son.left is None:
-                    t.length_bp += son.length_bp
-                    t.left = son.right
+                    new_t = t.clone()
+                    new_t.length_bp += son.length_bp
+                    new_t.right = son.right
+                    t = new_t
 
-            return t.update_sizes()
+            t = t.update_sizes()
+            
+            assert (
+                t.subtree_length_bp == old_subtree_length
+            ), "Subtree length has changed after empty space optimization??"
+
+            return t
 
         @staticmethod
         def expose(
