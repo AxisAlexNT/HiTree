@@ -484,8 +484,7 @@ class ScaffoldTree(object):
             return left_bp, opt_left_sd, right_bp, opt_right_sd
 
     def move_selection_range(self, queried_start_bp: np.int64, queried_end_bp: np.int64, target_start_bp: np.int64) -> None:
-        with self.scaffold_tree.root_lock.gen_wlock():
-
+        with self.root_lock.gen_wlock():
             left_bp, _, right_bp, _ = self.extend_borders_to_scaffolds(
                 queried_start_bp, queried_end_bp)
 
@@ -498,7 +497,7 @@ class ScaffoldTree(object):
             tmp = ScaffoldTree.Node.merge(es.less, es.greater)
             nl, nr = ScaffoldTree.Node.split_bp(
                 t=tmp,
-                lefT_size=target_start_bp,
+                left_size=target_start_bp,
                 include_equal_to_the_left=False,
             )
 

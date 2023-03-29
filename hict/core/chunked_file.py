@@ -691,7 +691,7 @@ class ChunkedFile(object):
 
             def traverse_fn(node: ContigTree.Node) -> None:
                 contig_atus = node.contig_descriptor.atus[resolution]
-                contig_direction = node.true_direction()                
+                contig_direction = node.true_direction()
                 if contig_direction == ContigDirection.REVERSED:
                     true_contig_atus = []
                     for atu in reversed(contig_atus):
@@ -726,49 +726,75 @@ class ChunkedFile(object):
 
             # TODO: maybe no push is needed
             first_contig_node_in_segment: Optional[ContigTree.Node] = es.segment.leftmost(
-            )
+                push=False)
 
             assert first_contig_node_in_segment is not None, "Segment is not empty but has no leftmost contig??"
 
             first_contig_in_segment: ContigDescriptor = first_contig_node_in_segment.contig_descriptor
 
+            reversed_first_contig_atus_prefix_sum = first_contig_in_segment.atu_prefix_sum_length_bins[
+                resolution]
+
+            if first_contig_node_in_segment.direction == ContigDirection.REVERSED:
+                reversed_first_contig_atus_prefix_sum = reversed_first_contig_atus_prefix_sum.copy()
+                reversed_first_contig_atus_prefix_sum[:-1] = reversed_first_contig_atus_prefix_sum[-1] - np.flip(
+                    reversed_first_contig_atus_prefix_sum)[1:]
+
             index_of_atu_containing_start: np.int64 = np.searchsorted(
-                first_contig_in_segment.atu_prefix_sum_length_bins[resolution],
+                reversed_first_contig_atus_prefix_sum,
                 delta_px_between_segment_first_contig_start_and_query_start,
                 side='right'
             )
 
             assert (
                 index_of_atu_containing_start < len(
-                    first_contig_in_segment.atu_prefix_sum_length_bins[resolution])
+                    reversed_first_contig_atus_prefix_sum)
             ), "Start of query does not fall into exposed leftmost contig??"
 
             length_of_atus_before_one_containing_start_px: np.int64 = (
-                first_contig_in_segment.atu_prefix_sum_length_bins[resolution][
+                reversed_first_contig_atus_prefix_sum[
                     index_of_atu_containing_start-1
                 ] if index_of_atu_containing_start > 0 else np.int64(0)
             )
 
             old_first_atu = atus[index_of_atu_containing_start]
-            
+
             assert (
                 old_first_atu.start_index_in_stripe_incl < old_first_atu.end_index_in_stripe_excl
             ), "Incorrect old first ATU??"
-            
-            
-            new_first_atu: ATUDescriptor = old_first_atu.clone()
-            new_first_atu.start_index_in_stripe_incl += (
-                delta_px_between_segment_first_contig_start_and_query_start -
-                length_of_atus_before_one_containing_start_px
-            )
 
-            assert (
-                0 <= new_first_atu.start_index_in_stripe_incl < new_first_atu.stripe_descriptor.stripe_length_bins
-            ), "Incorrect first ATU left border??"
-            
-            assert (
-                new_first_atu.start_index_in_stripe_incl < new_first_atu.end_index_in_stripe_excl
-            ), "Incorrect new first ATU??"
+            new_first_atu: ATUDescriptor = old_first_atu.clone()
+
+            if old_first_atu.direction == ATUDirection.FORWARD:
+                new_first_atu.start_index_in_stripe_incl += (
+                    delta_px_between_segment_first_contig_start_and_query_start -
+                    length_of_atus_before_one_containing_start_px
+                )
+
+                assert (
+                    0 <= new_first_atu.start_index_in_stripe_incl < new_first_atu.stripe_descriptor.stripe_length_bins
+                ), "Incorrect first ATU left border??"
+
+                assert (
+                    new_first_atu.start_index_in_stripe_incl < new_first_atu.end_index_in_stripe_excl
+                ), "Incorrect new first ATU??"
+            else:
+                new_first_atu.end_index_in_stripe_excl -= (
+                    delta_px_between_segment_first_contig_start_and_query_start -
+                    length_of_atus_before_one_containing_start_px
+                )
+
+                assert (
+                    new_first_atu.end_index_in_stripe_excl >= 0
+                ), "Negative right border of new reversed ATU??"
+
+                assert (
+                    0 <= new_first_atu.start_index_in_stripe_incl < new_first_atu.stripe_descriptor.stripe_length_bins
+                ), "Incorrect first ATU left border??"
+
+                assert (
+                    new_first_atu.start_index_in_stripe_incl < new_first_atu.end_index_in_stripe_excl
+                ), "Incorrect new first ATU??"
 
             atus[index_of_atu_containing_start] = new_first_atu
             atus = atus[index_of_atu_containing_start:]
@@ -777,8 +803,9 @@ class ChunkedFile(object):
                 (less_size + segment_size)
             last_contig_node = es.segment.rightmost()
             reversed_last_contig_atus_prefix_sum = last_contig_node.contig_descriptor.atu_prefix_sum_length_bins[
-                resolution].copy()
+                resolution]
             if last_contig_node.direction == ContigDirection.FORWARD:
+                reversed_last_contig_atus_prefix_sum = reversed_last_contig_atus_prefix_sum.copy()
                 reversed_last_contig_atus_prefix_sum[:-1] = reversed_last_contig_atus_prefix_sum[-1] - np.flip(
                     reversed_last_contig_atus_prefix_sum)[1:]
 
@@ -798,16 +825,34 @@ class ChunkedFile(object):
                 old_last_atu.start_index_in_stripe_incl < old_last_atu.end_index_in_stripe_excl
             ), "Incorrect old last ATU??"
             new_last_atu = old_last_atu.clone()
-            new_last_atu.end_index_in_stripe_excl += (
-                deleted_atus_length + delta_between_right_px_and_exposed_segment)
-            assert (
-                new_last_atu.stripe_descriptor.stripe_length_bins >= new_last_atu.end_index_in_stripe_excl > new_last_atu.start_index_in_stripe_incl
-            ), "Incorrect ATU right border??"
-            atus[-1] = new_last_atu
-            
-            assert (
-                new_last_atu.start_index_in_stripe_incl < new_last_atu.end_index_in_stripe_excl
-            ), "Incorrect new last ATU??"
+
+            if old_last_atu.direction == ATUDirection.FORWARD:
+                new_last_atu.end_index_in_stripe_excl += (
+                    deleted_atus_length + delta_between_right_px_and_exposed_segment)
+                assert (
+                    new_last_atu.stripe_descriptor.stripe_length_bins >= new_last_atu.end_index_in_stripe_excl > new_last_atu.start_index_in_stripe_incl
+                ), "Incorrect ATU right border??"
+                atus[-1] = new_last_atu
+
+                assert (
+                    new_last_atu.start_index_in_stripe_incl < new_last_atu.end_index_in_stripe_excl
+                ), "Incorrect new last ATU??"
+            else:
+                new_last_atu.start_index_in_stripe_incl -= (
+                    deleted_atus_length + delta_between_right_px_and_exposed_segment)
+
+                assert (
+                    new_last_atu.start_index_in_stripe_incl >= 0
+                ), "Negative left border of new reversed last ATU??"
+
+                assert (
+                    new_last_atu.stripe_descriptor.stripe_length_bins >= new_last_atu.end_index_in_stripe_excl > new_last_atu.start_index_in_stripe_incl
+                ), "Incorrect reversed ATU borders??"
+                atus[-1] = new_last_atu
+
+                assert (
+                    new_last_atu.start_index_in_stripe_incl < new_last_atu.end_index_in_stripe_excl
+                ), "Incorrect new reversed last ATU??"
 
             assert all(map(
                 lambda atu: atu.start_index_in_stripe_incl < atu.end_index_in_stripe_excl,
@@ -821,13 +866,15 @@ class ChunkedFile(object):
                 )
             )
 
+            expected_total_length = (
+                min(end_px_excl, total_assembly_length) -
+                max(0, start_px_incl)
+            )
+
             assert (
                 total_atu_length
-                == (
-                    min(end_px_excl, total_assembly_length) -
-                    start_px_incl
-                )
-            ), "ATUs total length is not equal to the requested query??"
+                == expected_total_length
+            ), f"ATUs total length {total_atu_length} is not equal to the requested query's {expected_total_length}??"
 
             result_atus = ATUDescriptor.reduce(atus)
 
@@ -849,10 +896,9 @@ class ChunkedFile(object):
 
         assert (
             total_result_atu_length
-            == (
-                min(end_px_excl, total_assembly_length) -
-                start_px_incl
-            )
+            ==
+            expected_total_length
+
         ), "Resulting ATUs total length is not equal to the requested query??"
 
         return result_atus

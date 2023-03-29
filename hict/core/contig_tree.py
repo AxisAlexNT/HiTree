@@ -200,11 +200,11 @@ class ContigTree:
         # def reverse_subtree(self):
         #     self.needs_changing_direction = not self.needs_changing_direction
 
-        def leftmost(self):
-            return ContigTree.get_leftmost(self)
+        def leftmost(self, push: bool = True):
+            return ContigTree.get_leftmost(self, push)
 
-        def rightmost(self):
-            return ContigTree.get_rightmost(self)
+        def rightmost(self, push: bool = True):
+            return ContigTree.get_rightmost(self, push)
 
     root: Optional[Node] = None
 
@@ -668,10 +668,9 @@ class ContigTree:
     def get_leftmost_with_push(node: Optional['ContigTree.Node']) -> Optional['ContigTree.Node']:
         if node is None:
             return None
-        current_node: ContigTree.Node = node
+        current_node: ContigTree.Node = node.push()
         while current_node.left is not None:
-            current_node.push()
-            current_node = current_node.left
+            current_node = current_node.left.push()
         return current_node
 
     @staticmethod
@@ -679,10 +678,13 @@ class ContigTree:
         if node is None:
             return None
         current_node: ContigTree.Node = node
+        chdir: bool = False
         while True:
-            next_node = current_node.left if not current_node.needs_changing_direction else current_node.right
+            chdir ^= current_node.needs_changing_direction
+            next_node = current_node.left if not chdir else current_node.right
             if next_node is None:
                 return current_node
+            current_node = next_node
 
     @staticmethod
     def get_rightmost(
@@ -698,10 +700,9 @@ class ContigTree:
     def get_rightmost_with_push(node: Optional['ContigTree.Node']) -> Optional['ContigTree.Node']:
         if node is None:
             return None
-        current_node: ContigTree.Node = node
+        current_node: ContigTree.Node = node.push()
         while current_node.right is not None:
-            current_node.push()
-            current_node = current_node.right
+            current_node = current_node.right.push()
         return current_node
 
     @staticmethod
@@ -709,10 +710,13 @@ class ContigTree:
         if node is None:
             return None
         current_node: ContigTree.Node = node
+        chdir: bool = False
         while True:
-            next_node = current_node.right if not current_node.needs_changing_direction else current_node.left
+            chdir ^= current_node.needs_changing_direction
+            next_node = current_node.right if not chdir else current_node.left
             if next_node is None:
                 return current_node
+            current_node = next_node
 
     def expose_segment_by_count(self, start_count: np.int64, end_count: np.int64) -> ExposedSegment:
         """
