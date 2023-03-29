@@ -218,10 +218,7 @@ class ScaffoldTree(object):
 
             if t.left is not None and t.left.scaffold_descriptor is None:
                 son = t.left
-                if son.left is None:
-                    t.length_bp += son.length_bp
-                    t.left = son.right
-                elif son.right is None:
+                if son.right is None:
                     t.length_bp += son.length_bp
                     t.left = son.left
 
@@ -230,9 +227,6 @@ class ScaffoldTree(object):
                 if son.left is None:
                     t.length_bp += son.length_bp
                     t.left = son.right
-                elif son.right is None:
-                    t.length_bp += son.length_bp
-                    t.left = son.left
 
             return t.update_sizes()
 
@@ -421,7 +415,7 @@ class ScaffoldTree(object):
             ), "Assembly length changed after unscaffolding a region?"
 
     def rescaffold(self, start_bp: np.int64, end_bp: np.int64, spacer_length: Optional[int] = 1000) -> ScaffoldDescriptor:
-        if start_bp >= end_bp:
+        if start_bp > end_bp:
             start_bp, end_bp = end_bp, start_bp
 
         with self.root_lock.gen_wlock():
