@@ -87,7 +87,7 @@ class LocationInAssembly(NamedTuple):
 class StripeDescriptor(RecordClass):
     stripe_id: np.int64
     stripe_length_bins: np.int64
-    bin_weights: Optional[np.ndarray]
+    bin_weights: np.ndarray
 
     @staticmethod
     def make_stripe_descriptor(
@@ -98,7 +98,7 @@ class StripeDescriptor(RecordClass):
         return StripeDescriptor(
             stripe_id,
             stripe_length_bins,
-            bin_weights
+            bin_weights if bin_weights is not None else np.ones(shape=stripe_length_bins, dtype=np.float64)
         )
 
     def __eq__(self, o: object) -> bool:

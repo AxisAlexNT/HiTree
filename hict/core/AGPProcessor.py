@@ -1,8 +1,5 @@
-from locale import currency
-from re import S
-from typing import Tuple, List, Dict, Optional, Union
+from typing import Tuple, NamedTuple, List, Dict, Optional, Union
 from hict.core.common import ContigDescriptor, ContigDirection, ScaffoldBordersBP, ScaffoldDescriptor
-from typing import NamedTuple, List
 import numpy as np
 
 
@@ -98,29 +95,26 @@ class AGPExporter(object):
         prev_scaffold: str = ""
         prev_end: np.int64 = 0
         component_id: int = 1
-        
+
         # contig_lengths: np.ndarray = np.zeros(shape=len(ordered_contig_descriptors), dtype=np.int64)
         # for i, cdt in enumerate(ordered_contig_descriptors):
         #     contig_lengths[i] = cdt[0].contig_length_at_resolution[0]
-            
+
         # ord_contig_length_prefix_sum = np.cumsum(contig_lengths)
-                        
-        
+
         position_bp: np.int64 = np.int64(0)
         position_in_scaffold_list = 0
-               
-        
+
         for contig, contig_direction in ordered_contig_descriptors:
             while position_in_scaffold_list < len(scaffold_list) and scaffold_list[position_in_scaffold_list][1].end_bp <= position_bp:
                 position_in_scaffold_list += 1
-              
-            current_scaffold: str  
+
+            current_scaffold: str
             if scaffold_list[position_in_scaffold_list][1].start_bp <= position_bp < scaffold_list[position_in_scaffold_list][1].end_bp:
                 current_scaffold = scaffold_list[position_in_scaffold_list][0].scaffold_name
             else:
-                current_scaffold = f"unscaffolded_{contig.contig_name}"    
-                        
-            
+                current_scaffold = f"unscaffolded_{contig.contig_name}"
+
             contig_name: str = contig.contig_name
             contig_length: np.int64 = contig.contig_length_at_resolution[np.int64(
                 0)]
