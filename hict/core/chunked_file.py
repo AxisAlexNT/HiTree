@@ -658,8 +658,8 @@ class ChunkedFile(object):
 
         es: ContigTree.ExposedSegment = self.contig_tree.expose_segment(
             resolution,
-            # 1+start_px_incl,
-            start_px_incl,
+            1+start_px_incl,
+            # start_px_incl,
             end_px_excl,
             units=QueryLengthUnit.PIXELS if exclude_hidden_contigs else QueryLengthUnit.BINS
         )
