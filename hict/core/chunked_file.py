@@ -626,7 +626,7 @@ class ChunkedFile(object):
             row_atu,
             col_atu
         )
-        
+
         row_weights = row_atu.stripe_descriptor.bin_weights[
             int(row_atu.start_index_in_stripe_incl):int(row_atu.end_index_in_stripe_excl)]
         col_weights = col_atu.stripe_descriptor.bin_weights[
@@ -648,7 +648,7 @@ class ChunkedFile(object):
         assert (
             self.state == ChunkedFile.FileState.OPENED and self.contig_tree is not None
         ), "File must be opened for reading ATUs"
-        
+
         total_assembly_length = self.contig_tree.get_sizes(
         )[2 if exclude_hidden_contigs else 0][resolution]
         start_px_incl = constrain_coordinate(
@@ -1086,7 +1086,7 @@ class ChunkedFile(object):
                 end=right_bp,
                 units=QueryLengthUnit.BASE_PAIRS
             )
-            
+
             if es.segment is not None:
                 segm = es.segment.clone()
                 segm.needs_changing_direction = not segm.needs_changing_direction
@@ -1128,7 +1128,7 @@ class ChunkedFile(object):
                 end=right_bp,
                 units=QueryLengthUnit.BASE_PAIRS
             )
-            
+
             if es.segment is not None:
                 tmp = self.contig_tree.merge_nodes(es.less, es.greater)
                 nl, nr = self.contig_tree.split_node_by_length(
@@ -1821,7 +1821,7 @@ class ChunkedFile(object):
         assert (
             self.state == ChunkedFile.FileState.OPENED and self.contig_tree is not None and self.scaffold_tree is not None
         ), "Operation requires file to be opened"
-        
+
         agpParser: AGPparser = AGPparser(agp_filepath.absolute())
         contig_records = agpParser.getAGPContigRecords()
         scaffold_records = agpParser.getAGPScaffoldRecords()
@@ -1866,11 +1866,16 @@ class ChunkedFile(object):
         assert (
             self.state == ChunkedFile.FileState.OPENED and self.contig_tree is not None and self.scaffold_tree is not None
         ), "Operation requires file to be opened"
-        
+
         agp_export_processor: AGPExporter = AGPExporter()
 
-        ordered_contig_descriptors: List[Tuple[ContigDescriptor,
-                                               ContigDirection]] = self.contig_tree.get_contig_list()
+        ordered_contig_descriptors: List[
+            Tuple[
+                ContigDescriptor,
+                ContigDirection,
+                # Dict[np.int64, Tuple[np.int64, np.int64]]
+            ]
+        ] = self.contig_tree.get_contig_list()
 
         scaffold_list: List[Tuple[ScaffoldDescriptor, ScaffoldBordersBP]
                             ] = self.scaffold_tree.get_scaffold_list()
@@ -1893,9 +1898,13 @@ class ChunkedFile(object):
         assert (
             self.state == ChunkedFile.FileState.OPENED and self.contig_tree is not None and self.scaffold_tree is not None
         ), "Operation requires file to be opened"
-        
-        es: ContigTree.ExposedSegment = self.contig_tree.expose_segment(resolution=np.int64(
-            0), start=from_bp_incl, end=to_bp_incl, units=QueryLengthUnit.BASE_PAIRS)
+
+        es: ContigTree.ExposedSegment = self.contig_tree.expose_segment(
+            resolution=np.int64(0),
+            start=from_bp_incl,
+            end=to_bp_incl,
+            units=QueryLengthUnit.BASE_PAIRS
+        )
         descriptors: List[ContigDescriptor] = []
 
         def traverse_fn(n: ContigTree.Node) -> None:
@@ -1906,14 +1915,20 @@ class ChunkedFile(object):
 
         self.contig_tree.traverse_node(es.segment, traverse_fn)
 
-        _, start_contig_location_in_resolutions, _, _ = self.get_contig_location(
-            descriptors[0].contig_id)
         _, end_contig_location_in_resolutions, _, _ = self.get_contig_location(
             descriptors[-1].contig_id)
 
         start_offset_bp: np.int64 = from_bp_incl - \
-            start_contig_location_in_resolutions[0][0]
-        end_offset_bp: np.int64 = end_contig_location_in_resolutions[0][1] - to_bp_incl
+            (es.less.get_sizes()[0][0] if es.less is not None else np.int64(0))
+
+        end_offset_bp: np.int64 = (
+            (es.less.get_sizes()[0][0] if es.less is not None else np.int64(0))
+            +
+            (es.segment.get_sizes()[
+                0][0] if es.segment is not None else np.int64(0))
+            -
+            to_bp_incl
+        )
 
         return (
             descriptors,
@@ -1929,7 +1944,7 @@ class ChunkedFile(object):
         assert (
             self.state == ChunkedFile.FileState.OPENED and self.contig_tree is not None and self.scaffold_tree is not None and self.fasta_processor is not None
         ), "Operation requires file to be opened"
-        
+
         (
             descriptorsX,
             start_offset_bpX,

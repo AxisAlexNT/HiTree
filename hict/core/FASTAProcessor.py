@@ -26,7 +26,7 @@ class FASTAProcessor(object):
         return tuple(s for s in self.initial_ctg_ord)
 
     def get_fasta_for_range(
-            self, file_like, ctg_list: List[ContigDescriptor],
+            self, file_like, ctg_list: List[Tuple[ContigDescriptor, ContigDirection]],
             out_fasta_header: str,
             offset_from_start_bp: int = 0,
             offset_from_end_bp: int = 0,
@@ -34,9 +34,8 @@ class FASTAProcessor(object):
     ) -> None:
         out_sequence_list: List[str] = list()
         last_ctg_order: int = len(ctg_list) - 1
-        for ctg_order, ctg in enumerate(ctg_list):
+        for ctg_order, (ctg, ctg_dir) in enumerate(ctg_list):
             ctg_name: str = ctg.contig_name
-            ctg_dir: ContigDirection = ctg.direction
             s_offset: int = 0
             e_offset: int = 0
             if ctg_order == 0:
@@ -65,9 +64,9 @@ class FASTAProcessor(object):
         dna_seq = self.records[contig_name].seq
         dna_seq_length: int = len(dna_seq)  # - 1
         if contig_direction == ContigDirection.FORWARD:
-            return str(dna_seq[offset_from_start: dna_seq_length - offset_before_end])
+            return str(dna_seq[offset_from_start:  -offset_before_end])
         elif contig_direction == ContigDirection.REVERSED:
-            return str(dna_seq.reverse_complement()[offset_from_start: dna_seq_length - offset_before_end])
+            return str(dna_seq.reverse_complement()[offset_from_start: -offset_before_end])
         else:
             raise Exception(
                 f"Incorrect contig direction: {str(contig_direction.name)}={str(contig_direction.value)}")
@@ -75,7 +74,7 @@ class FASTAProcessor(object):
     def get_dna_string_for_multiple_contigs_inside_scaffold(
             self,
             scaffold_descriptor: ScaffoldDescriptor,
-            ordered_contig_descriptors: List[ContigDescriptor],
+            ordered_contig_descriptors: List[Tuple[ContigDescriptor, ContigDirection]],
             contig_id_to_contig_name: List[str],
     ) -> str:
         ctg_count: int = len(ordered_contig_descriptors)
@@ -83,22 +82,22 @@ class FASTAProcessor(object):
             raise Exception("Contig count must be positive")
         elif ctg_count == 1:
             return self.get_dna_string_for_single_contig(
-                contig_id_to_contig_name[ordered_contig_descriptors[0].contig_id],
-                ordered_contig_descriptors[0].direction,
+                contig_id_to_contig_name[ordered_contig_descriptors[0][0].contig_id],
+                ordered_contig_descriptors[0][1]
             )
         else:
             spacer_str: str = 'N' * scaffold_descriptor.spacer_length
             return spacer_str.join(
                 self.get_dna_string_for_single_contig(
-                    contig_id_to_contig_name[ordered_contig_descriptors[i].contig_id],
-                    ordered_contig_descriptors[i].direction,
-                ) for i in range(ctg_count)
+                    contig_id_to_contig_name[ctg_descr.contig_id],
+                    ctg_dir
+                ) for ctg_descr, ctg_dir in ordered_contig_descriptors
             )
 
     def get_fasta_record_for_scaffold(
             self,
             scaffold_descriptor: ScaffoldDescriptor,
-            ordered_contig_descriptors: List[ContigDescriptor],
+            ordered_contig_descriptors: List[Tuple[ContigDescriptor, ContigDirection]],
             contig_id_to_contig_name: List[str],
     ) -> str:
         out_str = f">{scaffold_descriptor.scaffold_name}\n"
@@ -113,13 +112,16 @@ class FASTAProcessor(object):
     def get_fasta_record_for_single_contig_not_in_scaffold(
             self,
             contig_descriptor: ContigDescriptor,
-            contig_name: str
+            contig_direction: ContigDirection,
+            contig_name: Optional[str] = None
     ) -> str:
+        if contig_name is None:
+            contig_name = contig_descriptor.contig_name
         out_str = ''
         out_str += f'>{contig_name}\n'
         out_str += self.get_dna_string_for_single_contig(
             contig_name,
-            contig_descriptor.direction
+            contig_direction
         )
         out_str += '\n'
         return out_str
@@ -127,9 +129,9 @@ class FASTAProcessor(object):
     def finalize_fasta_for_assembly(
             self,
             file_like,
-            ordered_finalization_records: List[Tuple[FinalizeRecordType, List[ContigDescriptor]]],
+            ordered_finalization_records: List[Tuple[FinalizeRecordType, List[Tuple[ContigDescriptor, ContigDirection]]]],
             scaffold_id_to_scaffold_descriptor: Dict[np.int64, ScaffoldDescriptor],
-            contig_id_to_contig_name: List[str]
+            contig_id_to_contig_name: Optional[List[str]] = None
     ):
         for record_order, finalization_record in enumerate(ordered_finalization_records):
             record_type = finalization_record[0]
@@ -137,40 +139,25 @@ class FASTAProcessor(object):
                 assert (
                     len(finalization_record[1])
                 ), "Finalization record for single contig not in scaffold must contain only one contig descriptor"
-                contig_descriptor: ContigDescriptor = finalization_record[1][0]
+                contig_descriptor, contig_direction = finalization_record[1][0]
                 contig_record_str: str = self.get_fasta_record_for_single_contig_not_in_scaffold(
                     contig_descriptor,
-                    contig_id_to_contig_name[contig_descriptor.contig_id],
+                    contig_direction,
+                    contig_id_to_contig_name[contig_descriptor.contig_id] if contig_id_to_contig_name is not None else None,
                 )
                 contig_record_bytes: bytes = contig_record_str.encode(
                     encoding='utf-8')
                 #print(bytes(contig_record_bytes), end=None, file=file_like)
                 file_like.write(contig_record_bytes)
             elif record_type == FinalizeRecordType.SCAFFOLD:
+                raise Exception("Not yet implemented") #TODO: fix new scaffold output
                 assert (
                     len(finalization_record[1]) > 0
                 ), "Finalization record for scaffold must contain at least one contig"
-                scaffold_id: Optional[np.int64] = finalization_record[1][0].scaffold_id
+                scaffold_id: Optional[np.int64] = finalization_record[1][0][0].scaffold_id
                 assert scaffold_id is not None, "Finalization record for scaffold must have non-None scaffold_id"
-                assert all(map(
-                    (lambda cd: cd.scaffold_id == scaffold_id),
-                    finalization_record[1]
-                )), "All contigs inside one scaffold record must have the same scaffold ids"
                 scaffold_descriptor: ScaffoldDescriptor = scaffold_id_to_scaffold_descriptor[
                     scaffold_id]
-                assert (
-                    scaffold_descriptor.scaffold_borders is not None
-                ), "Scaffold that has contigs in it must have defined borders"
-                bordering_contig_id: List[np.int64] = [
-                    finalization_record[1][0].contig_id,
-                    finalization_record[1][-1].contig_id
-                ]
-                assert (
-                    scaffold_descriptor.scaffold_borders.start_contig_id in bordering_contig_id
-                ), "Scaffold starting contig id must be in scaffold record"
-                assert (
-                    scaffold_descriptor.scaffold_borders.end_contig_id in bordering_contig_id
-                ), "Scaffold ending contig id must be in scaffold record"
                 scaffold_record_str: str = self.get_fasta_record_for_scaffold(
                     scaffold_descriptor,
                     finalization_record[1],

@@ -87,7 +87,13 @@ class AGPExporter(object):
     def exportAGP(
         self,
         writableStream,
-        ordered_contig_descriptors: List[Tuple[ContigDescriptor, ContigDirection]],
+        ordered_contig_descriptors: List[
+            Tuple[
+                ContigDescriptor,
+                ContigDirection,
+                # Dict[np.int64, Tuple[np.int64, np.int64]]
+            ]
+        ],
         scaffold_list: List[Tuple[ScaffoldDescriptor, ScaffoldBordersBP]],
         intercontig_spacer: str = 500*'N'
     ) -> None:
@@ -116,37 +122,49 @@ class AGPExporter(object):
                 current_scaffold = f"unscaffolded_{contig.contig_name}"
 
             contig_name: str = contig.contig_name
-            contig_length: np.int64 = contig.contig_length_at_resolution[np.int64(
+            contig_length_bp: np.int64 = contig.contig_length_at_resolution[np.int64(
                 0)]
             dir_cond: bool = contig_direction == ContigDirection.FORWARD
             contig_direction_str = "+" if dir_cond else "-"
             if current_scaffold == prev_scaffold:
                 component_id += 1
-                agpString += "\t".join(map(str, [current_scaffold,
-                                                 prev_end + 1,
-                                                 prev_end +
-                                                 len(intercontig_spacer),
-                                                 component_id,
-                                                 "N", len(intercontig_spacer),
-                                                 "scaffold", "yes",
-                                                 "proximity_ligation"]))
+                agpString += "\t".join(
+                    map(
+                        str,
+                        [
+                            current_scaffold,
+                            prev_end + 1,
+                            prev_end +
+                            len(intercontig_spacer),
+                            component_id,
+                            "N", len(intercontig_spacer),
+                            "scaffold", "yes",
+                            "proximity_ligation"
+                        ]
+                    )
+                )
                 prev_end = prev_end + len(intercontig_spacer) - 1
                 agpString += '\n'
                 component_id += 1
             else:
                 component_id = 1
             agpString += "\t".join(
-                map(lambda e: str(e),
-                    (current_scaffold,
-                     prev_end + 1,
-                     prev_end + contig_length - 1,
-                     component_id,
-                     "W", contig_name,
-                     1, contig_length,
-                     contig_direction_str)))
-            prev_end = prev_end + contig_length - 1
+                map(
+                    lambda e: str(e),
+                    (
+                        current_scaffold,
+                        prev_end + 1,
+                        prev_end + contig_length_bp - 1,
+                        component_id,
+                        "W", contig_name,
+                        1, contig_length_bp,
+                        contig_direction_str
+                    )
+                )
+            )
+            prev_end = prev_end + contig_length_bp - 1
             prev_scaffold = current_scaffold
             agpString += '\n'
-            position += contig_length
+            position_bp += contig_length_bp
         out_record: bytes = agpString.encode(encoding='utf-8')
         writableStream.write(out_record)

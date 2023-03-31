@@ -870,7 +870,7 @@ class ContigTree:
     #     with self.root_lock.gen_wlock():
     #         old_root = self.root
     #         new_root, _ = self.update_subtree_state(
-    #             old_root, 
+    #             old_root,
     #             self.trivial_location_in_assembly
     #         )
     #         self.root = new_root
@@ -980,15 +980,36 @@ class ContigTree:
         with self.root_lock.gen_rlock():
             ContigTree.traverse_nodes_at_resolution(
                 self.root, resolution, exclude_hidden, f)
-            
-    def get_contig_list(self) -> List[Tuple[ContigDescriptor, ContigDirection]]:
-        descriptors: List[Tuple[ContigDescriptor, ContigDirection]] = []
-        
+
+    def get_contig_list(self) -> List[
+        Tuple[
+            ContigDescriptor,
+            ContigDirection,
+            # Dict[np.int64, Tuple[np.int64, np.int64]]
+        ]
+    ]:
+        descriptors: List[Tuple[ContigDescriptor, ContigDirection,
+                                Dict[np.int64, Tuple[np.int64, np.int64]]]] = []
+
+        # position_bins_at_res: Dict[np.int64, np.int64] = dict()
+
         def traverse_fn(n: ContigTree.Node) -> None:
-            descriptors.append((n.contig_descriptor, n.direction))       
-            
-        self.traverse(traverse_fn) 
-        
+            # position_at_resolution: Dict[np.int64,
+            #                              Tuple[np.int64, np.int64]] = dict()
+            # for res, ctg_len in n.contig_descriptor.contig_length_at_resolution.items():
+            #     position_at_resolution[res] = (
+            #         position_bins_at_res[res], position_bins_at_res[res] + ctg_len)
+            #     position_bins_at_res[res] += ctg_len
+            descriptors.append(
+                (
+                    n.contig_descriptor,
+                    n.direction,
+                    # position_at_resolution
+                )
+            )
+
+        self.traverse(traverse_fn)
+
         return descriptors
 
     # def leftmost(self):
