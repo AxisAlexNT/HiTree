@@ -795,16 +795,16 @@ class ContigTree:
                 if units == QueryLengthUnit.PIXELS:
                     assert (
                         t_seg.get_sizes()[
-                            2][resolution] >= end_excl-start_incl+1
+                            2][resolution] >= end_excl-start_incl
                     ), "Total segment length in pixels is less than queried [start, end]??"
                 elif units == QueryLengthUnit.BINS:
                     assert (
                         t_seg.get_sizes()[
-                            0][resolution] >= end_excl-start_incl+1
+                            0][resolution] >= end_excl-start_incl
                     ), "Total segment length in bins is less than queried [start, end]??"
                 elif units == QueryLengthUnit.BASE_PAIRS:
                     assert (
-                        t_seg.get_sizes()[0][0] >= end_excl-start_incl+1
+                        t_seg.get_sizes()[0][0] >= end_excl-start_incl
                     ), "Total segment length in bps is less than queried [start, end]??"
 
             return ContigTree.ExposedSegment(t_l, t_seg, t_gr)
