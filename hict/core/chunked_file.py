@@ -1083,8 +1083,8 @@ class ChunkedFile(object):
 
             es = self.contig_tree.expose_segment(
                 resolution=np.int64(0),
-                start=left_bp,
-                end=right_bp,
+                start_incl=left_bp,
+                end_excl=right_bp,
                 units=QueryLengthUnit.BASE_PAIRS
             )
 
@@ -1125,8 +1125,8 @@ class ChunkedFile(object):
 
             es = self.contig_tree.expose_segment(
                 resolution=np.int64(0),
-                start=left_bp,
-                end=right_bp,
+                start_incl=left_bp,
+                end_excl=right_bp,
                 units=QueryLengthUnit.BASE_PAIRS
             )
 
@@ -1386,6 +1386,24 @@ class ChunkedFile(object):
     #     self.contig_tree.commit_exposed_segment(es)
     #     self.clear_caches()
 
+    def extend_bp_borders_to_contigs(
+        self,
+        query_start_bp: np.int64,
+        query_end_bp: np.int64
+    ) -> Tuple[np.int64, np.int64]:
+        with self.contig_tree.root_lock.gen_rlock():
+            es = self.contig_tree.expose_segment(
+                resolution=np.int64(0),
+                start_incl=query_start_bp,
+                end_excl=query_end_bp,
+                units=QueryLengthUnit.BASE_PAIRS
+            )
+            less_size_bp = es.less.get_sizes(
+            )[0][0] if es.less is not None else np.int64(0)
+            segm_size_bp = es.segment.get_sizes(
+            )[0][0] if es.segment is not None else np.int64(0)
+            return (less_size_bp, less_size_bp+segm_size_bp)
+
     def scaffold_segment(
         self,
         query_start_bp: np.int64,
@@ -1396,7 +1414,11 @@ class ChunkedFile(object):
         assert (
             self.state == ChunkedFile.FileState.OPENED and self.contig_tree is not None and self.scaffold_tree is not None
         ), "Operation requires file to be opened"
-        return self.scaffold_tree.rescaffold(query_start_bp, query_end_bp, spacer_length)
+        ctg_l_bp, ctg_r_bp = self.extend_bp_borders_to_contigs(
+            query_start_bp,
+            query_end_bp
+        )
+        return self.scaffold_tree.rescaffold(ctg_l_bp, ctg_r_bp, spacer_length)
 
     def unscaffold_segment(
         self,
@@ -1406,7 +1428,11 @@ class ChunkedFile(object):
         assert (
             self.state == ChunkedFile.FileState.OPENED and self.contig_tree is not None and self.scaffold_tree is not None
         ), "Operation requires file to be opened"
-        self.scaffold_tree.unscaffold(query_start_bp, query_end_bp)
+        ctg_l_bp, ctg_r_bp = self.extend_bp_borders_to_contigs(
+            query_start_bp,
+            query_end_bp
+        )
+        self.scaffold_tree.unscaffold(ctg_l_bp, ctg_r_bp)
 
     def dump_stripe_info(self, f: h5py.File):
         for resolution in self.resolutions:
@@ -1853,7 +1879,8 @@ class ChunkedFile(object):
             with new_scaffold_tree.root_lock.gen_wlock():
                 self.scaffold_tree = new_scaffold_tree
                 for scaffold_ord, scaffold_record in enumerate(scaffold_records):
-                    start_contig_id: np.int64 = self.contig_name_to_contig_id[scaffold_record.start_ctg]
+                    start_contig_id: np.int64 = self.contig_name_to_contig_id[
+                        scaffold_record.start_ctg]
                     end_contig_id: np.int64 = self.contig_name_to_contig_id[scaffold_record.end_ctg]
                     scaffold_start_bp = contig_id_to_borders_bp[start_contig_id][0]
                     scaffold_end_bp = contig_id_to_borders_bp[end_contig_id][1]
@@ -1904,8 +1931,8 @@ class ChunkedFile(object):
 
         es: ContigTree.ExposedSegment = self.contig_tree.expose_segment(
             resolution=np.int64(0),
-            start=from_bp_incl,
-            end=to_bp_incl,
+            start_incl=from_bp_incl,
+            end_excl=to_bp_incl,
             units=QueryLengthUnit.BASE_PAIRS
         )
         descriptors: List[ContigDescriptor] = []

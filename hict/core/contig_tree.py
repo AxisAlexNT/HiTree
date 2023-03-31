@@ -3,10 +3,11 @@ import sys
 import threading
 import multiprocessing
 import multiprocessing.managers
-from typing import Dict, Optional, Tuple, List, Callable, NamedTuple
+from typing import Dict, Optional, Tuple, List, Callable, NamedTuple, Union
 from copy import deepcopy
 
 import numpy as np
+
 
 from hict.core.common import ContigDirection, ContigDescriptor, LocationInAssembly, QueryLengthUnit, ContigHideType
 
@@ -16,6 +17,11 @@ np.seterr(all='raise')
 
 
 # random.seed(324590754802)
+
+def constrain_coordinate(x_bins: Union[np.int64, int], lower: Union[np.int64, int],
+                         upper: Union[np.int64, int]) -> np.int64:
+    return max(min(x_bins, upper), lower)
+
 
 class ContigTree:
     class ExposedSegment(NamedTuple):
@@ -746,58 +752,59 @@ class ContigTree:
     def expose_segment(
             self,
             resolution: np.int64,
-            start: np.int64,
-            end: np.int64,
+            start_incl: np.int64,
+            end_incl: np.int64,
             units: QueryLengthUnit,
     ) -> ExposedSegment:
         """
         Exposes segment from start to end units (both inclusive).
         """
         with self.root_lock.gen_rlock():
-            total_assembly_length = (
+            end_excl = end_incl + 1
+            total_assembly_length_in_units = (
                 self.root.get_sizes()[[0, 0, 2][units.value]][resolution]
             ) if self.root is not None else 0
             (t_le, t_gr) = self.split_node_by_length(
                 resolution,
                 self.root,
-                end,
+                end_excl,
                 include_equal_to_the_left=True,
                 units=units
             )
+            t_le_size_in_units = t_le.get_sizes(
+            )[[0, 0, 2][units.value]][resolution] if t_le is not None else np.int64(0)
+            expected_end = constrain_coordinate(
+                end_excl, 0, total_assembly_length_in_units)
             assert (
-                (t_le is None) or (
-                    t_le.get_sizes()[[0, 0, 2][units.value]][resolution]
-                    >=
-                    max(0, min(total_assembly_length, end))
-                )
-            ), "After splitting less-or-equal segment ends earlier than queried??"
+                t_le_size_in_units >= expected_end
+            ), f"After splitting less-or-equal segment ends earlier than queried {t_le_size_in_units} >= {expected_end}?? Assembly length is {total_assembly_length_in_units} and exnd_excl is {end_excl}"
             (t_l, t_seg) = self.split_node_by_length(
                 resolution,
                 t_le,
-                start,
+                start_incl,
                 include_equal_to_the_left=False,
                 units=units
             )
+            t_l_size_in_units = t_l.get_sizes(
+            )[[0, 0, 2][units.value]][resolution] if t_l is not None else np.int64(0)
             assert (
-                (t_l is None) or (
-                    t_l.get_sizes()[[0, 0, 2][units.value]][resolution]
-                    <=
-                    start
-                )
-            ), "After splitting less segment starts not when queried??"
+                t_l_size_in_units <= start_incl
+            ), "After splitting less segment starts not when queried {t_l_size_in_units} <= {start_incl}?? Assembly length is {total_assembly_length}"
             if t_seg is not None:
                 t_seg = t_seg.push().update_sizes()
                 if units == QueryLengthUnit.PIXELS:
                     assert (
-                        t_seg.get_sizes()[2][resolution] >= end-start+1
+                        t_seg.get_sizes()[
+                            2][resolution] >= end_excl-start_incl+1
                     ), "Total segment length in pixels is less than queried [start, end]??"
                 elif units == QueryLengthUnit.BINS:
                     assert (
-                        t_seg.get_sizes()[0][resolution] >= end-start+1
+                        t_seg.get_sizes()[
+                            0][resolution] >= end_excl-start_incl+1
                     ), "Total segment length in bins is less than queried [start, end]??"
                 elif units == QueryLengthUnit.BASE_PAIRS:
                     assert (
-                        t_seg.get_sizes()[0][0] >= end-start+1
+                        t_seg.get_sizes()[0][0] >= end_excl-start_incl+1
                     ), "Total segment length in bps is less than queried [start, end]??"
 
             return ContigTree.ExposedSegment(t_l, t_seg, t_gr)

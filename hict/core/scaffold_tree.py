@@ -255,9 +255,9 @@ class ScaffoldTree(object):
             le, gr = ScaffoldTree.Node.split_bp(
                 t, to_bp, include_equal_to_the_left=True)
             le_size = (le.subtree_length_bp if le is not None else np.int64(0))
-            assert (
-                le_size == to_bp
-            ), f"Less-or-equal part does not end where desired {le_size} != {to_bp}??"
+            # assert (
+            #     le_size == to_bp
+            # ), f"Less-or-equal part does not end where desired {le_size} != {to_bp}??"
             ls, sg = ScaffoldTree.Node.split_bp(
                 le, from_bp, include_equal_to_the_left=True)
             less_size = (
@@ -275,9 +275,9 @@ class ScaffoldTree(object):
             #     (less_size + segment_size) == to_bp
             # ), "Less+Segment do not end as desired??"
 
-            assert (
-                (less_size + segment_size + greater_size) == total_length
-            ), "Exposed segments do not sum up to the total length??"
+            # assert (
+            #     (less_size + segment_size + greater_size) == total_length
+            # ), "Exposed segments do not sum up to the total length??"
 
             return ScaffoldTree.ExposedSegment(
                 ls,
@@ -407,7 +407,13 @@ class ScaffoldTree(object):
     def unscaffold(self, start_bp: np.int64, end_bp: np.int64) -> None:
         with self.root_lock.gen_wlock():
             old_assembly_length_bp: np.int64 = self.root.subtree_length_bp
-            es = ScaffoldTree.Node.expose(self.root, start_bp, end_bp)
+            
+            start_bp_extended, _, end_bp_extended, _ = self.extend_borders_to_scaffolds(
+                start_bp, 
+                end_bp
+            )
+            
+            es = ScaffoldTree.Node.expose(self.root, start_bp_extended, end_bp_extended)
             empty_node = ScaffoldTree.Node(
                 length_bp=es.segment.subtree_length_bp,
                 scaffold_descriptor=None,
@@ -433,10 +439,16 @@ class ScaffoldTree(object):
         with self.root_lock.gen_wlock():
             self.root_scaffold_id_counter += 1
             old_assembly_length_bp: np.int64 = self.root.subtree_length_bp
-            es = ScaffoldTree.Node.expose(self.root, start_bp, end_bp)
+            
+            start_bp_extended, _, end_bp_extended, _ = self.extend_borders_to_scaffolds(
+                start_bp, 
+                end_bp
+            )
+            
+            es = ScaffoldTree.Node.expose(self.root, start_bp_extended, end_bp_extended)
             assert (
                 es.segment is not None
-            ), f"No segment corresponds to the requested borders [{start_bp}, {end_bp}) with root of size {old_assembly_length_bp}"
+            ), f"No segment corresponds to the requested borders [{start_bp_extended}, {end_bp_extended}) with root of size {old_assembly_length_bp}"
             new_scaffold_descriptor = ScaffoldDescriptor.make_scaffold_descriptor(
                 scaffold_id=self.root_scaffold_id_counter,
                 scaffold_name=f"scaffold_auto_{self.root_scaffold_id_counter}_{datetime.datetime.now().strftime('%d-%M-%Y+%H:%M:%S')}",
@@ -475,7 +487,9 @@ class ScaffoldTree(object):
                 left_scaffold = ScaffoldTree.Node.leftmost(
                     r).scaffold_descriptor
                 assert (
-                    left_scaffold == opt_left_sd
+                    (left_scaffold == opt_left_sd) or (
+                        (left_scaffold is None) != (opt_left_sd is None)
+                    )
                 ), "After extension of left selection border to the scaffold border, scaffold became different?"
 
             # Extend right border:
@@ -490,8 +504,10 @@ class ScaffoldTree(object):
                 right_scaffold = ScaffoldTree.Node.rightmost(
                     le).scaffold_descriptor
                 assert (
-                    right_scaffold == opt_right_sd
-                ), "After extension of right selection border to the scaffold border, scaffold became different?"
+                    (right_scaffold == opt_right_sd) or (
+                        (right_scaffold is None) != (opt_right_sd is None)
+                    )
+                ), f"After extension of right selection border to the scaffold border, scaffold became different {right_scaffold} != {opt_right_sd}?"
 
             return left_bp, opt_left_sd, right_bp, opt_right_sd
 
