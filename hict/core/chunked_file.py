@@ -658,7 +658,8 @@ class ChunkedFile(object):
 
         es: ContigTree.ExposedSegment = self.contig_tree.expose_segment(
             resolution,
-            1+start_px_incl,
+            # 1+start_px_incl,
+            start_px_incl,
             end_px_excl,
             units=QueryLengthUnit.PIXELS if exclude_hidden_contigs else QueryLengthUnit.BINS
         )
@@ -1847,19 +1848,21 @@ class ChunkedFile(object):
 
         old_scaffold_tree = self.scaffold_tree
         with old_scaffold_tree.root_lock.gen_rlock():
-            self.scaffold_tree = ScaffoldTree(
+            new_scaffold_tree = ScaffoldTree(
                 old_scaffold_tree.root.update_sizes().subtree_length_bp, self.mp_manager)
-            for scaffold_ord, scaffold_record in enumerate(scaffold_records):
-                start_contig_id: np.int64 = self.contig_name_to_contig_id[scaffold_record.start_ctg]
-                end_contig_id: np.int64 = self.contig_name_to_contig_id[scaffold_record.end_ctg]
-                scaffold_start_bp = contig_id_to_borders_bp[start_contig_id][0]
-                scaffold_end_bp = contig_id_to_borders_bp[end_contig_id][1]
-                sd = ScaffoldDescriptor.make_scaffold_descriptor(
-                    scaffold_ord,
-                    scaffold_record.name
-                )
-                self.scaffold_tree.add_scaffold(
-                    scaffold_start_bp, scaffold_end_bp, sd)
+            with new_scaffold_tree.root_lock.gen_wlock():
+                self.scaffold_tree = new_scaffold_tree
+                for scaffold_ord, scaffold_record in enumerate(scaffold_records):
+                    start_contig_id: np.int64 = self.contig_name_to_contig_id[scaffold_record.start_ctg]
+                    end_contig_id: np.int64 = self.contig_name_to_contig_id[scaffold_record.end_ctg]
+                    scaffold_start_bp = contig_id_to_borders_bp[start_contig_id][0]
+                    scaffold_end_bp = contig_id_to_borders_bp[end_contig_id][1]
+                    sd = ScaffoldDescriptor.make_scaffold_descriptor(
+                        scaffold_ord,
+                        scaffold_record.name
+                    )
+                    self.scaffold_tree.add_scaffold(
+                        scaffold_start_bp, scaffold_end_bp, sd)
         gc.collect()
 
     def get_agp_for_assembly(self, writable_stream) -> None:

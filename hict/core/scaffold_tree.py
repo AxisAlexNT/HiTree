@@ -257,7 +257,7 @@ class ScaffoldTree(object):
             le_size = (le.subtree_length_bp if le is not None else np.int64(0))
             assert (
                 le_size == to_bp
-            ), "Less-or-equal part does not end where desired??"
+            ), f"Less-or-equal part does not end where desired {le_size} != {to_bp}??"
             ls, sg = ScaffoldTree.Node.split_bp(
                 le, from_bp, include_equal_to_the_left=True)
             less_size = (
@@ -436,7 +436,7 @@ class ScaffoldTree(object):
             es = ScaffoldTree.Node.expose(self.root, start_bp, end_bp)
             assert (
                 es.segment is not None
-            ), "No segment corresponds to the requested borders"
+            ), f"No segment corresponds to the requested borders [{start_bp}, {end_bp}) with root of size {old_assembly_length_bp}"
             new_scaffold_descriptor = ScaffoldDescriptor.make_scaffold_descriptor(
                 scaffold_id=self.root_scaffold_id_counter,
                 scaffold_name=f"scaffold_auto_{self.root_scaffold_id_counter}_{datetime.datetime.now().strftime('%d-%M-%Y+%H:%M:%S')}",
