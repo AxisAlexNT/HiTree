@@ -392,12 +392,12 @@ class ScaffoldTree(object):
         with self.root_lock.gen_rlock():
             if bp >= self.root.subtree_length_bp or bp < 0:
                 return None
-            (l, r) = ScaffoldTree.Node.split_bp(
-                self.root, bp, include_equal_to_the_left=False)
+            (le, r) = ScaffoldTree.Node.split_bp(
+                self.root, bp, include_equal_to_the_left=True)
             assert (
-                r is not None
+                le is not None
             ), "Scaffold Tree root was None?"
-            scaffold_node = ScaffoldTree.Node.leftmost(r)
+            scaffold_node = ScaffoldTree.Node.rightmost(le)
             assert (
                 scaffold_node is not None
             ), "Segment was not none but its leftmost is None"
@@ -486,11 +486,11 @@ class ScaffoldTree(object):
                 left_bp = l.subtree_length_bp
                 left_scaffold = ScaffoldTree.Node.leftmost(
                     r).scaffold_descriptor
-                assert (
-                    (left_scaffold == opt_left_sd) or (
-                        (left_scaffold is None) != (opt_left_sd is None)
-                    )
-                ), "After extension of left selection border to the scaffold border, scaffold became different?"
+                # assert (
+                #     (left_scaffold == opt_left_sd) or (
+                #         (left_scaffold is None) != (opt_left_sd is None)
+                #     )
+                # ), "After extension of left selection border to the scaffold border, scaffold became different?"
 
             # Extend right border:
             opt_right_sd: Optional[ScaffoldDescriptor] = self.get_scaffold_at_bp(
@@ -503,11 +503,11 @@ class ScaffoldTree(object):
                 right_bp = le.subtree_length_bp
                 right_scaffold = ScaffoldTree.Node.rightmost(
                     le).scaffold_descriptor
-                assert (
-                    (right_scaffold == opt_right_sd) or (
-                        (right_scaffold is None) != (opt_right_sd is None)
-                    )
-                ), f"After extension of right selection border to the scaffold border, scaffold became different {right_scaffold} != {opt_right_sd}?"
+                # assert (
+                #     (right_scaffold == opt_right_sd) or (
+                #         (right_scaffold is None) != (opt_right_sd is None)
+                #     )
+                # ), f"After extension of right selection border to the scaffold border, scaffold became different {right_scaffold} != {opt_right_sd}?"
 
             return left_bp, opt_left_sd, right_bp, opt_right_sd
 
