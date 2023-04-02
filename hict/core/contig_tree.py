@@ -753,14 +753,13 @@ class ContigTree:
             self,
             resolution: np.int64,
             start_incl: np.int64,
-            end_incl: np.int64,
+            end_excl: np.int64,
             units: QueryLengthUnit,
     ) -> ExposedSegment:
         """
         Exposes segment from start to end units (both inclusive).
         """
         with self.root_lock.gen_rlock():
-            end_excl = end_incl + 1
             total_assembly_length_in_units = (
                 self.root.get_sizes()[[0, 0, 2][units.value]][resolution]
             ) if self.root is not None else 0

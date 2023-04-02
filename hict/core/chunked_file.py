@@ -1855,7 +1855,7 @@ class ChunkedFile(object):
 
         contig_id_to_borders_bp: Dict[np.int64,
                                       Tuple[np.int64, np.int64]] = dict()
-        position: np.int64 = np.int64(0)
+        position_bp: np.int64 = np.int64(0)
 
         with self.contig_tree.root_lock.gen_wlock():
             self.contig_tree.root = None
@@ -1870,14 +1870,14 @@ class ChunkedFile(object):
                     # update_tree=False
                 )
                 contig_id_to_borders_bp[contig_id] = (
-                    position, position+contig_descriptor.contig_length_at_resolution[0])
+                    position_bp, position_bp+contig_descriptor.contig_length_at_resolution[0])
+                position_bp += contig_descriptor.contig_length_at_resolution[0]
 
         old_scaffold_tree = self.scaffold_tree
         with old_scaffold_tree.root_lock.gen_rlock():
             new_scaffold_tree = ScaffoldTree(
                 old_scaffold_tree.root.update_sizes().subtree_length_bp, self.mp_manager)
             with new_scaffold_tree.root_lock.gen_wlock():
-                self.scaffold_tree = new_scaffold_tree
                 for scaffold_ord, scaffold_record in enumerate(scaffold_records):
                     start_contig_id: np.int64 = self.contig_name_to_contig_id[
                         scaffold_record.start_ctg]
@@ -1888,8 +1888,9 @@ class ChunkedFile(object):
                         scaffold_ord,
                         scaffold_record.name
                     )
-                    self.scaffold_tree.add_scaffold(
+                    new_scaffold_tree.add_scaffold(
                         scaffold_start_bp, scaffold_end_bp, sd)
+            self.scaffold_tree = new_scaffold_tree
         gc.collect()
 
     def get_agp_for_assembly(self, writable_stream) -> None:
