@@ -1,4 +1,5 @@
 import gc
+from tarfile import CHRTYPE
 import time
 import random
 from typing import Dict, List, Tuple
@@ -68,6 +69,197 @@ def test_build_tree(
     assert ordered_contig_ids_in_tree == [
         cd.contig_id for cd in cds], "Contig order must be preserved"
 
+
+@settings(
+    max_examples=5000,
+    deadline=30000,
+    derandomize=True,
+    report_multiple_bugs=False,
+    suppress_health_check=(
+        HealthCheck.filter_too_much,
+        HealthCheck.data_too_large
+    )
+)
+@given(
+    contig_directions=st.lists(st.builds(ContigDirection, st.integers(
+        min_value=0, max_value=1)), min_size=4, max_size=4),
+    contig_lengths_bp=st.lists(st.integers(
+        min_value=0, max_value=4), min_size=4, max_size=4),
+    split_point=st.integers(min_value=-2, max_value=20),
+    include_equal_to_the_left=st.booleans()
+)
+def test_split_bp_size(
+        contig_directions,
+        contig_lengths_bp,
+        split_point,
+        include_equal_to_the_left
+):
+    contig_count: int = len(contig_lengths_bp)
+    ct, cds = build_tree(
+        resolutions=[],
+        contig_directions=contig_directions,
+        contig_lengths_bp=contig_lengths_bp,
+        contig_lengths_at_resolution_src=[dict() for _ in range(contig_count)]
+    )
+    
+    prefix_sum_bp=np.cumsum(contig_lengths_bp)
+
+    with ct.root_lock.gen_wlock():
+        expected_assembly_length_bp = sum(
+            map(
+                lambda cd: cd.contig_length_at_resolution[0],
+                cds
+            )
+        )
+        
+        actual_assembly_length_bp = ct.root.get_sizes()[0][0]
+        
+        assert (
+            actual_assembly_length_bp == expected_assembly_length_bp
+        ), "After building a tree actual length in bp is not as expected?"
+        
+        l, r = ct.split_node_by_length(
+            resolution=0,
+            t=ct.root,
+            k=split_point,
+            include_equal_to_the_left=include_equal_to_the_left,
+            units=QueryLengthUnit.BASE_PAIRS
+        )
+        
+        if include_equal_to_the_left:
+            li = np.searchsorted(prefix_sum_bp, split_point, side='left')
+            expected_left_size_bp = prefix_sum_bp[min(li, len(prefix_sum_bp)-1)] if (li >= 0 and split_point > 0) else 0
+        else:
+            li = np.searchsorted(prefix_sum_bp, split_point, side='right')
+            expected_left_size_bp = prefix_sum_bp[min(li-1, len(prefix_sum_bp)-1)] if li > 0 else 0
+                
+        actual_left_size_bp = l.get_sizes()[0][0] if l is not None else 0
+                
+        if not(actual_left_size_bp == expected_left_size_bp):
+            tl, tr = ct.split_node_by_length(resolution=0, t=ct.root, k=split_point, include_equal_to_the_left=include_equal_to_the_left, units=QueryLengthUnit.BASE_PAIRS)
+                
+        assert (
+            actual_left_size_bp == expected_left_size_bp
+        ), "Left size is not as expected??"
+        
+        actual_right_size_bp = r.get_sizes()[0][0] if r is not None else 0
+        
+        assert (
+            actual_right_size_bp == (
+                expected_assembly_length_bp - expected_left_size_bp
+            )
+        ), "Right size is not as expected??"
+        
+            
+@settings(
+    max_examples=15000,
+    deadline=30000,
+    derandomize=True,
+    report_multiple_bugs=False,
+    suppress_health_check=(
+        HealthCheck.filter_too_much,
+        HealthCheck.data_too_large
+    )
+)
+@given(
+    # log_resolutions=st.lists(st.floats(min_value=1.0, max_value=9.0, allow_infinity=False, allow_nan=False), min_size=4, max_size=4),
+    resolutions=st.lists(st.integers(2,5), min_size=2, max_size=2, unique=True),
+    contig_directions=st.lists(st.builds(ContigDirection, st.integers(
+        min_value=0, max_value=1)), min_size=5, max_size=5),
+    contig_lengths_bp=st.lists(st.integers(
+        min_value=1, max_value=5), min_size=5, max_size=5),
+    contig_lengths_at_resolution_src=st.lists(
+        st.lists(st.integers(min_value=1, max_value=5),
+                 min_size=2, max_size=2),
+        min_size=5, max_size=5),
+    split_point=st.integers(min_value=-10, max_value=30),
+    include_equal_to_the_left=st.booleans(),
+    units=st.builds(QueryLengthUnit, st.integers(min_value=0, max_value=2)),
+    resolution_idx=st.integers(0,1)
+)
+def test_split_units(
+        resolutions,
+        contig_directions,
+        contig_lengths_bp,
+        contig_lengths_at_resolution_src,
+        split_point,
+        include_equal_to_the_left,
+        units,
+        resolution_idx
+):
+    # resolutions = [np.abs(np.int64(10**r)) for r in log_resolutions]
+    contig_count: int = len(contig_lengths_bp)
+    
+    if units == QueryLengthUnit.BASE_PAIRS:
+        resolution = 0
+    else:
+        resolution = resolutions[resolution_idx]
+    
+    ct, cds = build_tree(
+        resolutions,
+        contig_directions,
+        contig_lengths_bp,
+        contig_lengths_at_resolution_src
+    )
+    
+    
+    contig_length_units = []
+    
+    for cd in cds:
+        ctg_length = cd.contig_length_at_resolution[resolution]
+        if units == QueryLengthUnit.PIXELS and cd.presence_in_resolution[resolution] not in (
+                ContigHideType.AUTO_SHOWN,
+                ContigHideType.FORCED_SHOWN
+            ):
+                ctg_length = 0                
+        contig_length_units.append(ctg_length)
+    
+    prefix_sum_units=np.cumsum(contig_length_units)
+
+    with ct.root_lock.gen_wlock():
+        expected_assembly_length_units = sum(contig_length_units)
+        
+        actual_assembly_length_units = ct.root.get_sizes()[[0,0,2][units.value]][resolution]
+        
+        assert (
+            actual_assembly_length_units == expected_assembly_length_units
+        ), "After building a tree actual length in units is not as expected?"
+        
+        l, r = ct.split_node_by_length(
+            resolution=resolution,
+            t=ct.root,
+            k=split_point,
+            include_equal_to_the_left=include_equal_to_the_left,
+            units=units
+        )
+        
+        if include_equal_to_the_left:
+            li = np.searchsorted(prefix_sum_units, split_point, side='left')
+            expected_left_size_units = prefix_sum_units[min(li, len(prefix_sum_units)-1)] if (li >= 0 and split_point > 0) else 0
+        else:
+            li = np.searchsorted(prefix_sum_units, split_point, side='left')
+            expected_left_size_units = prefix_sum_units[min(li-1, len(prefix_sum_units)-1)] if li > 0 else 0
+                
+        actual_left_size_units = l.get_sizes()[[0,0,2][units.value]][resolution] if l is not None else 0
+                
+        if not(actual_left_size_units == expected_left_size_units):
+            tl, tr = ct.split_node_by_length(resolution=0, t=ct.root, k=split_point, include_equal_to_the_left=include_equal_to_the_left, units=QueryLengthUnit.BASE_PAIRS)
+                
+        assert (
+            actual_left_size_units == expected_left_size_units
+        ), "Left size is not as expected??"
+        
+        actual_right_size_bp = r.get_sizes()[[0,0,2][units.value]][resolution] if r is not None else 0
+        
+        assert (
+            actual_right_size_bp == (
+                expected_assembly_length_units - expected_left_size_units
+            )
+        ), "Right size is not as expected??"  
+            
+            
+        
+        
 
 # @pytest.mark.randomize(
 #     log_resolutions=list_of(float, items=10), min_num=1.0, max_num=9.0,)
@@ -392,5 +584,6 @@ def build_tree(
 
     ct: ContigTree = ContigTree(np.array(resolutions))
     for i in range(0, contig_count):
-        ct.insert_at_position(contig_descriptors[i], i, direction=contig_directions[i])
+        ct.insert_at_position(
+            contig_descriptors[i], i, direction=contig_directions[i])
     return ct, contig_descriptors

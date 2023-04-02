@@ -89,10 +89,10 @@ class ContigTree:
             # scaffold_id: Optional[np.int64]
         ) -> 'ContigTree.Node':
             subtree_length_px = dict()
-            for resolution, present in contig_descriptor.presence_in_resolution.items():
+            for resolution, presence in contig_descriptor.presence_in_resolution.items():
                 subtree_length_px[resolution] = (
                     contig_descriptor.contig_length_at_resolution[resolution]
-                    if present else np.int64(0)
+                    if presence in (ContigHideType.AUTO_SHOWN, ContigHideType.FORCED_SHOWN) else np.int64(0)
                 )
             return ContigTree.Node(
                 contig_descriptor=contig_descriptor,
@@ -347,7 +347,7 @@ class ContigTree:
         if k <= 0:
             return None, t.push().update_sizes()
         assert resolution in t.subtree_length_bins.keys(), "Unknown resolution"
-        new_t = t.push()
+        new_t = t.push().update_sizes()
         left_length: np.int64 = 0
         if new_t.left is not None:
             new_t.left = new_t.left.push().update_sizes()
@@ -391,7 +391,7 @@ class ContigTree:
                     )
                 )) else new_t.contig_descriptor.contig_length_at_resolution[resolution]
             )
-            if left_length < k <= (left_length + contig_node_length):
+            if left_length < k < (left_length + contig_node_length):
                 if include_equal_to_the_left:
                     t2 = new_t.right
                     new_t.right = None
@@ -777,7 +777,7 @@ class ContigTree:
                 end_excl, 0, total_assembly_length_in_units)
             assert (
                 t_le_size_in_units >= expected_end
-            ), f"After splitting less-or-equal segment ends earlier than queried {t_le_size_in_units} >= {expected_end}?? Assembly length is {total_assembly_length_in_units} and exnd_excl is {end_excl}"
+            ), f"After splitting less-or-equal segment ends earlier than queried {t_le_size_in_units} >= {expected_end}?? Assembly length is {total_assembly_length_in_units} and end_excl is {end_excl}"
             (t_l, t_seg) = self.split_node_by_length(
                 resolution,
                 t_le,
@@ -795,17 +795,17 @@ class ContigTree:
                 if units == QueryLengthUnit.PIXELS:
                     assert (
                         t_seg.get_sizes()[
-                            2][resolution] >= end_excl-start_incl
-                    ), "Total segment length in pixels is less than queried [start, end]??"
+                            2][resolution] >= expected_end-start_incl
+                    ), f"Total segment length in pixels {t_seg.get_sizes()[2][resolution]} is less than queried [start, end] of {expected_end-start_incl}??"
                 elif units == QueryLengthUnit.BINS:
                     assert (
                         t_seg.get_sizes()[
-                            0][resolution] >= end_excl-start_incl
-                    ), "Total segment length in bins is less than queried [start, end]??"
+                            0][resolution] >= expected_end-start_incl
+                    ), f"Total segment length in bins {t_seg.get_sizes()[0][resolution]} is less than queried [start, end] of {expected_end-start_incl}??"
                 elif units == QueryLengthUnit.BASE_PAIRS:
                     assert (
-                        t_seg.get_sizes()[0][0] >= end_excl-start_incl
-                    ), "Total segment length in bps is less than queried [start, end]??"
+                        t_seg.get_sizes()[0][0] >= expected_end-start_incl
+                    ), f"Total segment length in bps {t_seg.get_sizes()[0][0]} is less than queried [start, end] of {expected_end-start_incl}??"
 
             return ContigTree.ExposedSegment(t_l, t_seg, t_gr)
 
