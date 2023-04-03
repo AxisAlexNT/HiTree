@@ -1,3 +1,5 @@
+.idea/
+.vscode/
 *.pyc
 __pycache__
 .pytest_cache
@@ -6,5 +8,4 @@ __pycache__
 /build
 **/.eggs
 *.egg-info
-.idea
 **/.hypothesis
