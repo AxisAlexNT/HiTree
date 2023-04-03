@@ -1,3 +1,5 @@
+import multiprocessing
+import multiprocessing.managers
 from typing import List, Tuple
 import copy
 from pathlib import Path
@@ -28,7 +30,12 @@ class ContactMatrixFacet(object):
         pass
 
     @staticmethod
-    def get_file_descriptor(filepath: str, block_cache_size: int = 64) -> ChunkedFile:
+    def get_file_descriptor(
+        filepath: str,
+        block_cache_size: int = 64,
+        multithreading_pool_size: int = 8,
+        mp_manager: Optional[multiprocessing.managers.SyncManager] = None
+    ) -> ChunkedFile:
         """
         Create descriptor for working with files in our format.
 
@@ -36,7 +43,12 @@ class ContactMatrixFacet(object):
         :param block_cache_size: Size of cache for dense blocks (each at most max_dense_size*max_dense_size*sizeof(dtype) bytes).
         :return: File descriptor.
         """
-        f: ChunkedFile = ChunkedFile(filepath, block_cache_size)
+        f: ChunkedFile = ChunkedFile(
+            filepath,
+            block_cache_size,
+            multithreading_pool_size=multithreading_pool_size,
+            mp_manager=mp_manager
+        )
         return f
 
     @staticmethod
@@ -211,16 +223,14 @@ class ContactMatrixFacet(object):
         # y0 = max(0, y0)
         # y1 = max(0, y1)
 
-        if x0 > x1:
-            x0, x1 = x1, x0
-        if y0 > y1:
-            y0, y1 = y1, y0
+        # if x0 > x1:
+        #     x0, x1 = x1, x0
+        # if y0 > y1:
+        #     y0, y1 = y1, y0
 
         if resolution not in f.resolutions:
             raise ContactMatrixFacet.IncorrectResolution()
-        submatrix: np.ndarray
-        row_weights: np.ndarray
-        col_weights: np.ndarray
+        # submatrix_and_weights: Tuple[np.ndarray, np.ndarray, np.ndarray]
         if units == QueryLengthUnit.BASE_PAIRS:
             # (x|y)(0|1)_bp -> (x|y)(0|1)_px using 1:1 "resolution" to find start and ending contigs
             # In start contig, find which bin (pixel) this query falls into,
@@ -237,28 +247,26 @@ class ContactMatrixFacet(object):
             y1_in_contig_px = ContactMatrixFacet.get_px_by_bp(
                 f, y1, resolution)
 
-            submatrix, row_weights, col_weights = f.get_submatrix(
+            submatrix_and_weights = f.get_submatrix(
                 resolution,
                 x0_in_contig_px.global_position_px,
                 y0_in_contig_px.global_position_px,
                 1 + x1_in_contig_px.global_position_px,
                 1 + y1_in_contig_px.global_position_px,
-                units,
                 exclude_hidden_contigs=exclude_hidden_contigs,
                 fetch_cooler_weights=fetch_cooler_weights
             )
         else:
             # submatrix = f.get_submatrix(resolution, x0, y0, 1 + x1, 1 + y1, units, exclude_hidden_contigs)
-            submatrix, row_weights, col_weights = f.get_submatrix(
+            submatrix_and_weights = f.get_submatrix(
                 resolution,
                 x0, y0,
                 x1, y1,
-                units,
-                exclude_hidden_contigs,
-                fetch_cooler_weights
+                exclude_hidden_contigs=(exclude_hidden_contigs or (
+                    units == QueryLengthUnit.PIXELS))
             )
 
-        return submatrix, row_weights, col_weights
+        return submatrix_and_weights
 
     @staticmethod
     def apply_cooler_balance_to_dense_matrix(
@@ -273,53 +281,52 @@ class ContactMatrixFacet(object):
         return result
 
     @staticmethod
-    def reverse_selection_range(f: ChunkedFile, start_contig_id: np.int64, end_contig_id: np.int64) -> None:
+    def reverse_selection_range_bp(f: ChunkedFile, start_bp: np.int64, end_bp: np.int64) -> None:
         """
-        Performs reversal of contig segment between given start and end contigs (both are included). Changes orientation of each contig on that segment and reverses their order. If any scaffold intersects with selection range, then selection range is extended to include this scaffold.
+        Performs reversal of contig segment between given start and end bps (both are extended to cover the whole contig). Changes orientation of each contig on that segment and reverses their order. If any scaffold intersects with selection range, then selection range is extended to include this scaffold.
 
         :param f: File descriptor.
-        :param start_contig_id: ID of the left bordering contig.
-        :param end_contig_id: ID of the right bordering contig.
+        :param start_bp: Left border (in assembly base pairs).
+        :param end_bp: Right border (in assembly base pairs).
         """
-        f.reverse_selection_range(start_contig_id, end_contig_id)
+        f.reverse_selection_range_bp(start_bp, end_bp)
 
     @staticmethod
-    def move_selection_range(f: ChunkedFile, start_contig_id: np.int64, end_contig_id: np.int64, target_start_order: np.int64) -> None:
+    def move_selection_range_bp(f: ChunkedFile, start_bp: np.int64, end_bp: np.int64, target_start_bp: np.int64) -> None:
         """
-        Moves contig segment between given start and end contigs (both are included). If any scaffold intersects with selection range, then selection range is extended to include this scaffold.
+        Moves contig segment between given start and end bps (both are extended to cover the whole contig). If any scaffold intersects with selection range, then selection range is extended to include this scaffold.
 
         :param f: File descriptor.
-        :param start_contig_id: ID of the left bordering contig.
-        :param end_contig_id: ID of the right bordering contig.
-        :param target_start_order: Target index of the leftmost contig of selection range.
+        :param start_bp: Left border (in assembly base pairs).
+        :param end_bp: Right border (in assembly base pairs).
+        :param target_start_bp: Rightmost possible position for start of moved segment.
         """
-        f.move_selection_range(
-            start_contig_id, end_contig_id, target_start_order)
+        f.move_selection_range_bp(
+            start_bp, end_bp, target_start_bp)
 
     @staticmethod
-    def group_selection_range_into_scaffold(f: ChunkedFile, start_contig_id: np.int64, end_contig_id: np.int64, name: Optional[str] = None, spacer_length: int = 1000) -> None:
+    def group_selection_range_into_scaffold(f: ChunkedFile, start_bp: np.int64, end_bp: np.int64, name: Optional[str] = None, spacer_length: int = 1000) -> None:
         """
-        Groups segment between contigs with given IDs into the new scaffold, both bordering contigs are included in it. All scaffolds that intersect with given segment, would be fully added into the new scaffold (so its borders might actually be different from start_contig_id and end_contig_id).
+        Groups segment between given bps into the new scaffold, both bordering contigs are included in it. All scaffolds that intersect with given segment, would be fully added into the new scaffold (so its borders might actually be different from start_contig_id and end_contig_id).
 
         :param f: File descriptor.
-        :param start_contig_id: ID of left bordering contig (inclulsive). If that contig happens to be inside some scaffold, the segment border is automatically extended to the left border of that scaffold.
-        :param end_contig_id: ID of right bordering contig (inclusive). If that contig happens to be inside some scaffold, the segment border is automatically extended to the right border of that scaffold.
+        :param start_bp: Left border (in assembly base pairs).
+        :param end_bp: Right border (in assembly base pairs).
         :param name: New scaffold's name. If not provided, would be generaed automatically.
         :param spacer_length: How many spacers 'N' to include in the final FASTA assembly on the borders of this scaffold.
         """
-        f.group_contigs_into_scaffold(
-            start_contig_id, end_contig_id, name, spacer_length)
+        f.scaffold_segment(start_bp, end_bp, name, spacer_length)
 
     @staticmethod
-    def ungroup_selection_range(f: ChunkedFile, start_contig_id: np.int64, end_contig_id: np.int64, name: Optional[str] = None, spacer_length: int = 1000) -> None:
+    def ungroup_selection_range(f: ChunkedFile, start_bp: np.int64, end_bp: np.int64) -> None:
         """
-        Takes selection range between contigs with given IDs and removes scaffolds that intersect with it.
+        Takes selection range between given bps and removes all scaffolds that intersect with it.
 
         :param f: File descriptor.
-        :param start_contig_id: ID of left bordering contig (inclulsive). If that contig happens to be inside some scaffold, the segment border is automatically extended to the left border of that scaffold.
-        :param end_contig_id: ID of right bordering contig (inclusive). If that contig happens to be inside some scaffold, the segment border is automatically extended to the right border of that scaffold.
+        :param start_bp: Left border (in assembly base pairs).
+        :param end_bp: Right border (in assembly base pairs).
         """
-        f.ungroup_contigs_from_scaffold(start_contig_id, end_contig_id)
+        f.unscaffold_segment(start_bp, end_bp)
 
     @staticmethod
     def load_assembly_from_agp(f: ChunkedFile, agp_filepath: Path) -> None:

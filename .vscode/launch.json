@@ -1,0 +1,85 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        
+        {
+            "name": "HiCT PyTest",
+            "type": "python",
+            "request": "launch",
+            "module": "pytest",
+            "args": [
+                "-x",
+                "-n16"
+            ],
+            "justMyCode": true
+        },{
+            "name": "HiCT PyTest Single",
+            "type": "python",
+            "request": "launch",
+            "module": "pytest",
+            "args": [
+                "-x",
+            ],
+            "justMyCode": true
+        },
+        {
+            "name": "HiCT PyTest ReverseTree",
+            "type": "python",
+            "request": "launch",
+            "module": "pytest",
+            "args": [
+                "./tests/test_ReverseTrees.py",
+                "-x",
+                "-n2"
+            ],
+            "justMyCode": true
+        },{
+            "name": "HiCT PyTest Stripe Tree",
+            "type": "python",
+            "request": "launch",
+            "module": "pytest",
+            "args": [
+                "-x",
+                "./tests/test_StripeTreeSplitMergeProperties.py",                
+            ],
+            "justMyCode": true
+        }, 
+        {
+            "name": "Debug Compare with Cooler",
+            "type": "python",
+            "request": "launch",
+            "module": "pytest",
+            "args": [
+                "-xvv",
+                "-n 4",
+                "tests/test_CompareWithCooler.py"
+            ],
+            "justMyCode": true
+        },{
+            "name": "Debug Scaffold Tree tests",
+            "type": "python",
+            "request": "launch",
+            "module": "pytest",
+            "args": [
+                "-xvv",
+                "-n 4",
+                "tests/test_ScaffoldTree.py"
+            ],
+            "justMyCode": true
+        },{
+            "name": "Small Debug Compare with Cooler",
+            "type": "python",
+            "request": "launch",
+            "module": "pytest",
+            "args": [
+                "-xvv",
+                "-n 4",
+                "tests/test_CompareWithCooler.py::test_compare_small_square_queries_with_cooler_by_bins"
+            ],
+            "justMyCode": true
+        },
+    ]
+}

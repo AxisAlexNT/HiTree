@@ -1,7 +1,5 @@
-from locale import currency
-from typing import Tuple, List, Dict, Optional, Union
-from hict.core.common import ContigDescriptor, ContigDirection, ScaffoldDescriptor
-from typing import NamedTuple, List
+from typing import Tuple, NamedTuple, List, Dict, Optional, Union
+from hict.core.common import ContigDescriptor, ContigDirection, ScaffoldBordersBP, ScaffoldDescriptor
 import numpy as np
 
 
@@ -89,46 +87,84 @@ class AGPExporter(object):
     def exportAGP(
         self,
         writableStream,
-        ordered_contig_descriptors: List[ContigDescriptor],
-        scaffold_table: Dict[np.int64, ScaffoldDescriptor],
+        ordered_contig_descriptors: List[
+            Tuple[
+                ContigDescriptor,
+                ContigDirection,
+                # Dict[np.int64, Tuple[np.int64, np.int64]]
+            ]
+        ],
+        scaffold_list: List[Tuple[ScaffoldDescriptor, ScaffoldBordersBP]],
         intercontig_spacer: str = 500*'N'
     ) -> None:
         agpString: str = ""
         prev_scaffold: str = ""
         prev_end: np.int64 = 0
         component_id: int = 1
-        for contig in ordered_contig_descriptors:
-            current_scaffold: str = scaffold_table[
-                contig.scaffold_id].scaffold_name if contig.scaffold_id is not None else f"unscaffold_{contig.contig_name}"
+
+        # contig_lengths: np.ndarray = np.zeros(shape=len(ordered_contig_descriptors), dtype=np.int64)
+        # for i, cdt in enumerate(ordered_contig_descriptors):
+        #     contig_lengths[i] = cdt[0].contig_length_at_resolution[0]
+
+        # ord_contig_length_prefix_sum = np.cumsum(contig_lengths)
+
+        position_bp: np.int64 = np.int64(0)
+        position_in_scaffold_list = 0
+
+        for contig, contig_direction in ordered_contig_descriptors:
+            while position_in_scaffold_list < len(scaffold_list) and scaffold_list[position_in_scaffold_list][1].end_bp <= position_bp:
+                position_in_scaffold_list += 1
+
+            current_scaffold: str
+            if scaffold_list[position_in_scaffold_list][1].start_bp <= position_bp < scaffold_list[position_in_scaffold_list][1].end_bp:
+                current_scaffold = scaffold_list[position_in_scaffold_list][0].scaffold_name
+            else:
+                current_scaffold = f"unscaffolded_{contig.contig_name}"
+
             contig_name: str = contig.contig_name
-            contig_length: np.int64 = contig.contig_length_at_resolution[np.int64(0)]
-            dir_cond: bool = contig.direction == ContigDirection.FORWARD
-            contig_direction = "+" if dir_cond else "-"
+            contig_length_bp: np.int64 = contig.contig_length_at_resolution[np.int64(
+                0)]
+            dir_cond: bool = contig_direction == ContigDirection.FORWARD
+            contig_direction_str = "+" if dir_cond else "-"
             if current_scaffold == prev_scaffold:
                 component_id += 1
-                agpString += "\t".join(map(str, [current_scaffold,
-                                        prev_end + 1,
-                                        prev_end + len(intercontig_spacer),
-                                        component_id,
-                                        "N", len(intercontig_spacer),
-                                        "scaffold", "yes",
-                                        "proximity_ligation"]))
+                agpString += "\t".join(
+                    map(
+                        str,
+                        [
+                            current_scaffold,
+                            prev_end + 1,
+                            prev_end +
+                            len(intercontig_spacer),
+                            component_id,
+                            "N", len(intercontig_spacer),
+                            "scaffold", "yes",
+                            "proximity_ligation"
+                        ]
+                    )
+                )
                 prev_end = prev_end + len(intercontig_spacer) - 1
                 agpString += '\n'
                 component_id += 1
             else:
                 component_id = 1
             agpString += "\t".join(
-                map(lambda e: str(e),
-                    (current_scaffold,
-                     prev_end + 1,
-                     prev_end + contig_length - 1,
-                     component_id,
-                     "W", contig_name,
-                     1, contig_length,
-                     contig_direction)))
-            prev_end = prev_end + contig_length - 1
+                map(
+                    lambda e: str(e),
+                    (
+                        current_scaffold,
+                        prev_end + 1,
+                        prev_end + contig_length_bp - 1,
+                        component_id,
+                        "W", contig_name,
+                        1, contig_length_bp,
+                        contig_direction_str
+                    )
+                )
+            )
+            prev_end = prev_end + contig_length_bp - 1
             prev_scaffold = current_scaffold
             agpString += '\n'
+            position_bp += contig_length_bp
         out_record: bytes = agpString.encode(encoding='utf-8')
         writableStream.write(out_record)
