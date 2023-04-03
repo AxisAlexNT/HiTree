@@ -728,7 +728,7 @@ class ContigTree:
         """
         Exposes segment of contigs in assembly order from start_count to end_count (both inclusive).
         """
-        with self.root_lock.gen_wlock():
+        with self.root_lock.gen_rlock():
             (t_le, t_gr) = self.split_node_by_count(self.root, 1 + end_count)
             (t_l, t_seg) = self.split_node_by_count(t_le, start_count)
             if t_seg is not None:
@@ -740,7 +740,7 @@ class ContigTree:
         """
         Exposes segment from start_px to end_px (both inclusive).
         """
-        with self.root_lock.gen_wlock():
+        with self.root_lock.gen_rlock():
             (t_le, t_gr) = self.split_node_by_length(resolution,
                                                      self.root, end_px, include_equal_to_the_left=True)
             (t_l, t_seg) = self.split_node_by_length(
@@ -820,7 +820,7 @@ class ContigTree:
         @param start_index: Start index of contig (inclusive).
         @param end_index: End index of contig (inclusive).
         """
-        with self.root_lock.gen_wlock():
+        with self.root_lock.gen_rlock():
             segm: ContigTree.ExposedSegment = self.expose_segment_by_count(
                 start_index, end_index)
             (t_l, t_seg, t_gr) = segm
