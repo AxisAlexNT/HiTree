@@ -78,7 +78,7 @@ class ChunkedFile(object):
             lock_factory = threading.RLock
         self.hdf_file_lock: rwlock.RWLockWrite = rwlock.RWLockWrite(
             lock_factory=lock_factory)
-        self.opened_hdf_file: h5py.File = h5py.File(filepath, mode='r')
+        self.opened_hdf_file: h5py.File = h5py.File(filepath, mode='r', swmr=True)
         self.fasta_processor: Optional[FASTAProcessor] = None
         self.fasta_file_lock: rwlock.RWLockFair = rwlock.RWLockFair(
             lock_factory=lock_factory)
