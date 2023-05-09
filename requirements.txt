@@ -14,3 +14,4 @@ hypothesis
 hypothesis[numpy]
 mypy>=0.971
 types-cachetools>=5.2.0
+ext-sort>=0.2.0

@@ -1,4 +1,5 @@
 import gc
+from math import floor
 import threading
 from enum import Enum
 from io import BytesIO
@@ -13,6 +14,7 @@ import numpy as np
 # from cachetools import LRUCache, cachedmethod
 # from cachetools.keys import hashkey
 from readerwriterlock import rwlock
+import scipy
 from scipy.sparse import coo_array, csr_array, csc_array
 from hict.core.scaffold_tree import ScaffoldTree
 
@@ -23,6 +25,10 @@ from hict.core.common import ATUDescriptor, ATUDirection, ScaffoldBordersBP, Str
 from hict.core.contig_tree import ContigTree
 # from hict.core.stripe_tree import StripeTree
 from hict.util.h5helpers import *
+import ext_sort
+import lzma
+import gzip
+import io
 
 
 additional_dataset_creation_args = {
@@ -1991,3 +1997,195 @@ class ChunkedFile(object):
             buf, descriptorsX, f"{from_bp_x_incl}bp-{to_bp_x_incl}bp", start_offset_bpX, end_offset_bpX)
         self.fasta_processor.get_fasta_for_range(
             buf, descriptorsY, f"{from_bp_y_incl}bp-{to_bp_y_incl}bp", start_offset_bpY, end_offset_bpY)
+        
+        
+    def export_scaffoldwise_to_mcool(
+        self,
+        output_file_path: Path,
+        resolutions: Optional[List[int]] = None,
+        maximum_fetch_size_bytes: int = 256*1024*1024*8
+    ):
+        if resolutions is None:
+            resolutions = min(self.resolutions)
+            
+        ds_args = {
+            "compression": "gzip",
+            "shuffle": True,
+            "chunks": True,
+        }
+        
+        class CSVSerializer(es.Serializer):
+
+            def __init__(self, writer):
+                super().__init__(csv.writer(io.TextIOWrapper(writer, write_through=True)))
+
+            def write(self, item):
+                return self._writer.writerow(item)
+
+
+        class CSVDeserializer(es.Deserializer):
+
+            def __init__(self, reader):
+                super().__init__(csv.reader(io.TextIOWrapper(reader)))
+
+            def read(self):
+                return next(self._reader)
+            
+        with h5py.File(str(output_file_path.absolute()), mode="w-", libver="earliest") as dst_file, self.contig_tree.root_lock.gen_rlock(), self.scaffold_tree.root_lock.gen_rlock():
+            resolutions_group = dst_file.create_group("/resolutions")
+            for resolution in resolutions:
+                grp = resolutions_group.create_group(str(resolution))
+                #ordered_contig_nodes: List[ContigTree.Node] = []
+                #self.contig_tree.traverse(ordered_contig_nodes.append)
+                ordered_scaffold_nodes: List[ScaffoldTree.Node] = []
+                self.scaffold_tree.traverse(ordered_scaffold_nodes.append)
+                
+                scaffold_count: np.int64 = np.int64(len(ordered_scaffold_nodes))
+                
+                
+                # /resolutions/1000/chroms:
+                chroms = grp.create_group("chroms")
+                # /resolutions/1000/chroms/length:
+                scaffold_length_bp = tuple(map(lambda n: n.length_bp, ordered_scaffold_nodes))
+                chroms.create_dataset("length", data=np.array(scaffold_length_bp, dtype=np.int32), **ds_args)
+                # /resolutions/1000/chroms/name:
+                unnamed_count: int = 0
+                def get_name(n: ScaffoldTree.Node) -> None:
+                    if n.scaffold_descriptor is not None:
+                        return n.scaffold_descriptor.scaffold_name
+                    else:
+                        unnamed_count += 1
+                        return f"unscaffolded_contig_region_{unnamed_count}"
+                scaffold_names = map(get_name, ordered_scaffold_nodes)
+                maximum_length = max(map(len, scaffold_names))
+                ascii_type = h5py.string_dtype('ascii', maximum_length)
+                chroms.create_dataset("name", data=np.array(scaffold_names, dtype=ascii_type), **ds_args)
+                
+                
+                # /resolutions/1000/bins:
+                bins = grp.create_group("bins")
+                # /resolutions/1000/bins/chrom:
+                scaffold_length_bp_prefix_sum = np.zeros(shape=(1+scaffold_count,), dtype=np.int64)
+                scaffold_length_bins = np.zeros(shape=(scaffold_count,), dtype=np.int64)
+                np.cumsum(scaffold_length_bp, out=scaffold_length_bp_prefix_sum[1:], dtype=np.int64)
+                for i in range(scaffold_count):
+                    es = self.contig_tree.expose_segment(
+                        resolution,
+                        scaffold_length_bp_prefix_sum[i],
+                        scaffold_length_bp_prefix_sum[1+i],
+                        units=QueryLengthUnit.BASE_PAIRS
+                    )
+                    scaffold_length_bins[i] = es.segment.get_sizes()[0][resolution] if es.segment is not None else np.int64(0)
+                scaffold_length_bins_prefix_sum = np.zeros(shape=(1+scaffold_count,), dtype=np.int64)
+                np.cumsum(scaffold_length_bins, out=scaffold_length_bins_prefix_sum[1:], dtype=np.int64)
+                total_bin_length = scaffold_length_bins_prefix_sum[-1]
+                bin_to_scaffold = bins.create_dataset("chrom", shape=(total_bin_length,), dtype=np.int32, **ds_args)
+                for scaffold_index in range(len(scaffold_length_bins)):
+                    bin_to_scaffold[scaffold_length_bins_prefix_sum[i]:scaffold_length_bins_prefix_sum[1+i]] = scaffold_index
+                # /resolutions/1000/bins/start:
+                # /resolutions/1000/bins/end:
+                bins_start = bins.create_dataset("start", shape=(total_bin_length,), dtype=np.int32)
+                bins_end = bins.create_dataset("start", shape=(total_bin_length,), dtype=np.int32)
+                for scaffold_index in range(scaffold_count):
+                    bin_ords = np.arange(scaffold_length_bins[scaffold_index], dtype=np.int64)
+                    bins_start[scaffold_length_bins_prefix_sum[scaffold_index]:scaffold_length_bins_prefix_sum[1+scaffold_index]] = np.int32(resolution*bin_ords)
+                    bins_end[scaffold_length_bins_prefix_sum[scaffold_index]:scaffold_length_bins_prefix_sum[1+scaffold_index]] = np.int32(resolution*(1+bin_ords))
+                    bins_end[scaffold_length_bins_prefix_sum[1+scaffold_index]] = np.int32(scaffold_length_bp[scaffold_index])
+                # /resolutions/1000/bins/weight:
+                bins_weight = bins.create_dataset("weight", shape=(total_bin_length,), dtype=np.float64)
+                
+                # /resolutions/1000/pixels/
+                pixels = chroms = grp.create_group("pixels")
+                
+                dtype_width_bytes: int = int(np.dtype(self.dtype).itemsize) if self.dtype is not None else 8
+                number_of_blocks_to_fetch: int = int(max(1, maximum_fetch_size_bytes // (dtype_width_bytes * self.dense_submatrix_size * self.dense_submatrix_size)))
+                
+                for start_row_incl in range(0, total_bin_length, self.dense_submatrix_size):
+                    end_row_excl = min(start_row_incl + self.dense_submatrix_size, total_bin_length)
+                    for start_col_incl in range(0, total_bin_length, self.dense_submatrix_size * number_of_blocks_to_fetch):
+                        end_col_excl = min(start_col_incl + self.dense_submatrix_size * number_of_blocks_to_fetch, total_bin_length)
+                        dense, row_weights, _ = self.get_submatrix(
+                            resolution,
+                            start_row_incl,
+                            start_col_incl,
+                            end_row_excl,
+                            end_col_excl,
+                            exclude_hidden_contigs=False
+                        )
+                        sparse = coo_array(dense, dtype=(self.dtype if self.dtype is not None else np.int32))
+                        coo_tuples = map(lambda t: (np.int32(start_row_incl+t[0]), np.int32(start_col_incl+t[1]), t[2]), zip(sparse.row, sparse.col, sparse.data))
+                                                                
+                    bins_weight[start_row_incl:end_row_excl] = row_weights
+                    
+                
+                
+                
+                
+                
+                
+        
+    def export_contigwise_to_mcool(
+        self,
+        output_file_path: Path,
+        resolutions: Optional[List[int]] = None
+    ):
+        if resolutions is None:
+            resolutions = min(self.resolutions)
+            
+        ds_args = {
+            "compression": "gzip",
+            "shuffle": True,
+            "chunks": True,
+        }
+            
+        with h5py.File(str(output_file_path.absolute()), mode="w-", libver="earliest") as dst_file:
+            resolutions_group = dst_file.create_group("/resolutions")
+            for resolution in resolutions:
+                grp = resolutions_group.create_group(str(resolution))
+                ordered_contig_nodes: List[ContigTree.Node] = []
+                
+                self.contig_tree.traverse(ordered_contig_nodes.append)
+                
+                # /resolutions/1000/chroms:
+                chroms = grp.create_group("chroms")                
+                # /resolutions/1000/chroms/length:
+                contig_length_bp = tuple(map(lambda n: n.contig_descriptor.contig_length_at_resolution[0], ordered_contig_nodes))
+                chroms.create_dataset("length", data=np.array(contig_length_bp, dtype=np.int32), **ds_args)
+                # /resolutions/1000/chroms/name:
+                contig_names = map(lambda n: n.contig_descriptor.contig_name, ordered_contig_nodes)
+                maximum_length = max(map(len, contig_names))
+                ascii_type = h5py.string_dtype('ascii', maximum_length)
+                chroms.create_dataset("name", data=np.array(contig_names, dtype=ascii_type), **ds_args)
+                
+                # /resolutions/1000/bins:
+                bins = grp.create_group("bins")
+                # /resolutions/1000/bins/chrom:
+                ctg_bin_length = np.array(
+                    tuple(map(
+                        lambda n: n.contig_descriptor.contig_length_at_resolution[resolution], 
+                        ordered_contig_nodes
+                    )), 
+                    dtype=np.int64
+                )
+                ctg_bin_length_prefix_sum = np.zeros(shape=(1+len(ctg_bin_length),), dtype=np.int64)
+                np.cumsum(ctg_bin_length, out=ctg_bin_length_prefix_sum[1:], dtype=np.int64)
+                total_bin_length = ctg_bin_length_prefix_sum[-1]
+                bin_to_ctg = bins.create_dataset("chrom", shape=(total_bin_length,), dtype=np.int32, chunks=True)
+                for ctg_index in range(len(ctg_bin_length)):
+                    bin_to_ctg[ctg_bin_length_prefix_sum[ctg_index]:ctg_bin_length_prefix_sum[1+ctg_index]] = np.int32(ctg_index)
+                # /resolutions/1000/bins/start:
+                # /resolutions/1000/bins/end:
+                bins_start = bins.create_dataset("start", shape=(total_bin_length,), dtype=np.int32)
+                bins_end = bins.create_dataset("start", shape=(total_bin_length,), dtype=np.int32)
+                for ctg_index in range(len(ordered_contig_nodes)):
+                    bin_ords = np.arange(ctg_bin_length[ctg_index], dtype=np.int64)
+                    bins_start[ctg_bin_length_prefix_sum[ctg_index]:ctg_bin_length_prefix_sum[1+ctg_index]] = np.int32(resolution*bin_ords)
+                    bins_end[ctg_bin_length_prefix_sum[ctg_index]:ctg_bin_length_prefix_sum[1+ctg_index]] = np.int32(resolution*(1+bin_ords))
+                    bins_end[ctg_bin_length_prefix_sum[1+ctg_index]] = np.int32(contig_length_bp[ctg_index])
+                
+                
+                                        
+                        
+                
+                
+        pass
