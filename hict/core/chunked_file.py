@@ -1,3 +1,4 @@
+import bz2
 import gc
 from math import floor
 import threading
@@ -26,9 +27,10 @@ from hict.core.contig_tree import ContigTree
 # from hict.core.stripe_tree import StripeTree
 from hict.util.h5helpers import *
 import ext_sort
-import lzma
-import gzip
-import io
+import bz2
+import tempfile
+import numpy.lib.recfunctions as npr
+import os
 
 
 additional_dataset_creation_args = {
@@ -2014,22 +2016,7 @@ class ChunkedFile(object):
             "chunks": True,
         }
         
-        class CSVSerializer(es.Serializer):
-
-            def __init__(self, writer):
-                super().__init__(csv.writer(io.TextIOWrapper(writer, write_through=True)))
-
-            def write(self, item):
-                return self._writer.writerow(item)
-
-
-        class CSVDeserializer(es.Deserializer):
-
-            def __init__(self, reader):
-                super().__init__(csv.reader(io.TextIOWrapper(reader)))
-
-            def read(self):
-                return next(self._reader)
+        
             
         with h5py.File(str(output_file_path.absolute()), mode="w-", libver="earliest") as dst_file, self.contig_tree.root_lock.gen_rlock(), self.scaffold_tree.root_lock.gen_rlock():
             resolutions_group = dst_file.create_group("/resolutions")
@@ -2097,26 +2084,98 @@ class ChunkedFile(object):
                 # /resolutions/1000/pixels/
                 pixels = chroms = grp.create_group("pixels")
                 
-                dtype_width_bytes: int = int(np.dtype(self.dtype).itemsize) if self.dtype is not None else 8
-                number_of_blocks_to_fetch: int = int(max(1, maximum_fetch_size_bytes // (dtype_width_bytes * self.dense_submatrix_size * self.dense_submatrix_size)))
+                val_dtype = self.dtype
+                val_dtype_width_bytes: int = int(np.dtype(val_dtype).itemsize) if val_dtype is not None else 8
+                number_of_blocks_to_fetch: int = int(max(1, maximum_fetch_size_bytes // (val_dtype_width_bytes * self.dense_submatrix_size * self.dense_submatrix_size)))
+                                
+                row_dtype = np.int32
+                row_dtype_width_bytes: int = int(np.dtype(row_dtype).itemsize) if row_dtype is not None else 4
+                col_dtype = np.int32
+                col_dtype_width_bytes: int = int(np.dtype(col_dtype).itemsize) if col_dtype is not None else 4
                 
-                for start_row_incl in range(0, total_bin_length, self.dense_submatrix_size):
-                    end_row_excl = min(start_row_incl + self.dense_submatrix_size, total_bin_length)
-                    for start_col_incl in range(0, total_bin_length, self.dense_submatrix_size * number_of_blocks_to_fetch):
-                        end_col_excl = min(start_col_incl + self.dense_submatrix_size * number_of_blocks_to_fetch, total_bin_length)
-                        dense, row_weights, _ = self.get_submatrix(
-                            resolution,
-                            start_row_incl,
-                            start_col_incl,
-                            end_row_excl,
-                            end_col_excl,
-                            exclude_hidden_contigs=False
-                        )
-                        sparse = coo_array(dense, dtype=(self.dtype if self.dtype is not None else np.int32))
-                        coo_tuples = map(lambda t: (np.int32(start_row_incl+t[0]), np.int32(start_col_incl+t[1]), t[2]), zip(sparse.row, sparse.col, sparse.data))
-                                                                
-                    bins_weight[start_row_incl:end_row_excl] = row_weights
+                dump_record_width_bytes: int = row_dtype_width_bytes+col_dtype_width_bytes+val_dtype_width_bytes # Since mcool requires int32 rows and columns
+                                
+                record_dtype = None
+                record_width_bytes = None
+
+                with tempfile.NamedTemporaryFile("w+b") as tmpf:
+                    with bz2.open(tmpf, mode="wb", compresslevel=5) as cstream:
+                        for start_row_incl in range(0, total_bin_length, self.dense_submatrix_size):
+                            end_row_excl = min(start_row_incl + self.dense_submatrix_size, total_bin_length)
+                            for start_col_incl in range(0, total_bin_length, self.dense_submatrix_size * number_of_blocks_to_fetch):
+                                end_col_excl = min(start_col_incl + self.dense_submatrix_size * number_of_blocks_to_fetch, total_bin_length)
+                                dense, row_weights, _ = self.get_submatrix(
+                                    resolution,
+                                    start_row_incl,
+                                    start_col_incl,
+                                    end_row_excl,
+                                    end_col_excl,
+                                    exclude_hidden_contigs=False
+                                )
+                                sparse = coo_array(dense, dtype=(self.dtype if self.dtype is not None else np.int32))
+                                coo_record_row = np.rec.array(sparse.row + start_row_incl, dtype=('row', row_dtype))
+                                coo_record_rcv = npr.append_fields(coo_record_row, data=(sparse.col, sparse.data), names=('col', 'val'), dtypes=(col_dtype, val_dtype), usemask=False, asrecarray=True)
+                                coo_bytes = coo_record_rcv.tobytes(order='C')
+                                cstream.write(coo_bytes)
+                                if record_dtype is None:
+                                    record_dtype = copy.deepcopy(coo_record_rcv.dtype)
+                                if record_width_bytes is None:
+                                    record_width_bytes = len(coo_bytes)
+                                    assert (
+                                        record_width_bytes == dump_record_width_bytes
+                                    ), "Some padding/alignment was added?"
+                                del coo_bytes
+                                del coo_record_rcv
+                                del coo_record_row
+                                del sparse                                                              
+                            bins_weight[start_row_incl:end_row_excl] = row_weights
+                    assert (
+                        record_dtype is not None
+                    ), "Nothing was dumped and dtype not inferred?"
+                    assert (
+                        record_width_bytes is not None
+                    ), "Nothing was dumped and data width not inferred?"
                     
+                    tmpf.seek(0)
+                    
+                    
+                    class NPZRowDeserializer(es.Deserializer):
+
+                        def __init__(self, reader):
+                            super().__init__(reader)
+
+                        def read(self):
+                            single_coo_dump = self._reader.read(record_width_bytes)
+                            if single_coo_dump:
+                                return np.frombuffer(single_coo_dump, dtype=record_dtype)
+                            return None
+                            
+                        
+                    class NPZRowSerializer(es.Serializer):
+
+                        def __init__(self, writer):
+                            super().__init__(writer)
+
+                        def write(self, item):
+                            assert (
+                                item.dtype == record_dtype
+                            ), "dtype has changed after sorting?"
+                            self._writer.write(item.tobytes(order='C'))
+                    
+                    with tempfile.NamedTemporaryFile("w+b") as tmpres, bz2.open(tmpres, mode="w+b", compresslevel=5) as cresstream:
+                        with bz2.open(tmpf, mode="rb") as cstream:
+                            ext_sort.sort(
+                                cstream,
+                                cresstream,
+                                Deserializer=NPZRowDeserializer,
+                                Serializer=NPZRowSerializer,
+                                chunk_size=(maximum_fetch_size_bytes // val_dtype_width_bytes),
+                                workers_cnt=os.cpu_count()
+                            )
+                        cresstream.seek(0)
+                        # Copy from compressed temporary file to Cooler datasets
+                
+                
                 
                 
                 
