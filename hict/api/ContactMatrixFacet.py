@@ -1,16 +1,16 @@
 import multiprocessing
 import multiprocessing.managers
-from typing import List, Tuple
+from typing import List, Tuple, Union
 import copy
 from pathlib import Path
 from typing import NamedTuple, Optional
 from flask import scaffold
 
 import numpy as np
-from HiCT_Library.hict.core.scaffold_tree import ScaffoldTree
+from hict.core.scaffold_tree import ScaffoldTree
 
 from hict.core.chunked_file import ChunkedFile
-from hict.core.common import ContigDescriptor, ContigDirection, QueryLengthUnit, ScaffoldDescriptor, ScaffoldDirection
+from hict.core.common import ContigDescriptor, ContigDirection, QueryLengthUnit, ScaffoldDescriptor
 from hict.core.contig_tree import ContigTree
 
 
@@ -33,7 +33,7 @@ class ContactMatrixFacet(object):
 
     @staticmethod
     def get_file_descriptor(
-        filepath: str,
+        filepath: Union[Path, str],
         block_cache_size: int = 64,
         multithreading_pool_size: int = 8,
         mp_manager: Optional[multiprocessing.managers.SyncManager] = None
@@ -355,13 +355,14 @@ class ContactMatrixFacet(object):
         :return A list of tuples `(ctg, dir)`.
         """
         tree = f.contig_tree
-        result: List[Tuple[ContigDescriptor, ContigDirection]]
+        result: List[Tuple[ContigDescriptor, ContigDirection]] = []
         
         assert (
             tree is not None
         ), "No contig tree is present?"
         
         def traverse_fn(n: ContigTree.Node) -> None:
+            nonlocal result
             result.append((
                 n.contig_descriptor,
                 n.true_direction()
@@ -381,13 +382,14 @@ class ContactMatrixFacet(object):
         :return A list of tuples `(scaf, len)` where `scaf` can be either a `ScaffoldDescriptor` or `None` (for unscaffolded region) and `len` is its length in base pairs.
         """
         tree = f.scaffold_tree      
-        result: List[Tuple[Optional[ScaffoldDescriptor], int]]
+        result: List[Tuple[Optional[ScaffoldDescriptor], int]] = []
         
         assert (
             tree is not None
         ), "No scaffold tree is present?"
         
         def traverse_fn(n: ScaffoldTree.Node) -> None:
+            nonlocal result
             result.append((
                 n.scaffold_descriptor,
                 int(n.length_bp)

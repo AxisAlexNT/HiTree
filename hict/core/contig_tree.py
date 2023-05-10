@@ -9,7 +9,7 @@ from copy import deepcopy
 import numpy as np
 
 
-from hict.core.common import ContigDirection, ContigDescriptor, LocationInAssembly, QueryLengthUnit, ContigHideType
+from hict.core.common import ContigDirection, ContigDescriptor, QueryLengthUnit, ContigHideType
 
 from readerwriterlock import rwlock
 

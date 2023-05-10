@@ -49,13 +49,13 @@ class ChunkedFile(object):
 
     def __init__(
             self,
-            filepath: str,
+            filepath: Union[Path, str],
             block_cache_size: int = 64,
             multithreading_pool_size: int = 8,
             mp_manager: Optional[multiprocessing.managers.SyncManager] = None
     ) -> None:
         super().__init__()
-        self.filepath: str = filepath
+        self.filepath: Path = Path(filepath).absolute()
         self.stripes: Dict[np.int64, List[StripeDescriptor]] = dict()
         self.atl: Dict[np.int64, List[ATUDescriptor]] = dict()
         self.contig_names: List[str] = []
@@ -80,7 +80,10 @@ class ChunkedFile(object):
         self.hdf_file_lock: rwlock.RWLockWrite = rwlock.RWLockWrite(
             lock_factory=lock_factory)
         self.opened_hdf_file: h5py.File = h5py.File(
-            filepath, mode='r', swmr=True)
+            filepath,
+            mode='r',
+            swmr=True
+        )
         self.fasta_processor: Optional[FASTAProcessor] = None
         self.fasta_file_lock: rwlock.RWLockFair = rwlock.RWLockFair(
             lock_factory=lock_factory)
