@@ -4,7 +4,6 @@ from typing import List, Tuple, Union
 import copy
 from pathlib import Path
 from typing import NamedTuple, Optional
-from flask import scaffold
 
 import numpy as np
 from hict.core.scaffold_tree import ScaffoldTree
