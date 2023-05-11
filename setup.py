@@ -8,7 +8,7 @@ with open("requirements.txt", mode="rt", encoding="utf-8") as f:
 
 setup(
     name='hict',
-    version='0.1.1rc1',
+    version='0.1.3rc1',
     packages=list(set(['hict', 'hict.api', 'hict.core', 'hict.util']).union(find_packages())),
     url='https://genome.ifmo.ru',
     license='',
