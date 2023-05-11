@@ -211,6 +211,7 @@ class ContactMatrixFacet(object):
             y1: np.int64,
             units: QueryLengthUnit = QueryLengthUnit.PIXELS,
             exclude_hidden_contigs: bool = True,
+            fetch_cooler_weights: bool = True,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Fetches requested area from contact matrix in the given resolution.
@@ -222,6 +223,8 @@ class ContactMatrixFacet(object):
         :param x1: End column of query expressed in given units (exclusive).
         :param y1: End row of query expressed in given units (exclusive).
         :param units: Either QueryLengthUnit.PIXELS (0-indexed) or QueryLengthUnit.BASE_PAIRS (1-indexed). In both cases borders are inclusive.
+        :param exclude_hidden_contigs: Whether to include hidden contigs (e.g. too short for current resolution) in the bin/bp query.
+        :param fetch_cooler_weights: Deprecated, now weights are always fetched. 
         :return: A tuple of (M, w_r, w_c) where M is dense 2D numpy array which contains contact map submatrix for the given region, w_r is row bin weights and w_c is column bin weights.
         """
         # x0 = max(0, x0)
