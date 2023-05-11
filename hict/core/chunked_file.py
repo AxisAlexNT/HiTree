@@ -13,6 +13,7 @@ import numpy as np
 # from cachetools import LRUCache, cachedmethod
 # from cachetools.keys import hashkey
 from readerwriterlock import rwlock
+import scipy
 from scipy.sparse import coo_array, csr_array, csc_array
 from hict.core.scaffold_tree import ScaffoldTree
 
@@ -48,13 +49,13 @@ class ChunkedFile(object):
 
     def __init__(
             self,
-            filepath: str,
+            filepath: Union[Path, str],
             block_cache_size: int = 64,
             multithreading_pool_size: int = 8,
             mp_manager: Optional[multiprocessing.managers.SyncManager] = None
     ) -> None:
         super().__init__()
-        self.filepath: str = filepath
+        self.filepath: Path = Path(filepath).absolute()
         self.stripes: Dict[np.int64, List[StripeDescriptor]] = dict()
         self.atl: Dict[np.int64, List[ATUDescriptor]] = dict()
         self.contig_names: List[str] = []
@@ -78,7 +79,11 @@ class ChunkedFile(object):
             lock_factory = threading.RLock
         self.hdf_file_lock: rwlock.RWLockWrite = rwlock.RWLockWrite(
             lock_factory=lock_factory)
-        self.opened_hdf_file: h5py.File = h5py.File(filepath, mode='r', swmr=True)
+        self.opened_hdf_file: h5py.File = h5py.File(
+            filepath,
+            mode='r',
+            swmr=True
+        )
         self.fasta_processor: Optional[FASTAProcessor] = None
         self.fasta_file_lock: rwlock.RWLockFair = rwlock.RWLockFair(
             lock_factory=lock_factory)
@@ -492,7 +497,9 @@ class ChunkedFile(object):
             end_col_excl: np.int64,
             exclude_hidden_contigs: bool
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-
+        assert (
+            self.contig_tree is not None
+        ), "Contig tree is not present?"
         total_assembly_length = self.contig_tree.get_sizes(
         )[2 if exclude_hidden_contigs else 0][resolution]
 
@@ -1391,6 +1398,9 @@ class ChunkedFile(object):
         query_start_bp: np.int64,
         query_end_bp: np.int64
     ) -> Tuple[np.int64, np.int64]:
+        assert (
+            self.contig_tree is not None
+        ), "Contig tree is not present?"
         with self.contig_tree.root_lock.gen_rlock():
             es = self.contig_tree.expose_segment(
                 resolution=np.int64(0),
@@ -1434,351 +1444,7 @@ class ChunkedFile(object):
         )
         self.scaffold_tree.unscaffold(ctg_l_bp, ctg_r_bp)
 
-    def dump_stripe_info(self, f: h5py.File):
-        for resolution in self.resolutions:
-            # TODO: Rename 'contigs' group in something like 'metadata'
-            stripe_info_group: h5py.Group = f[f'/resolutions/{resolution}/contigs']
-            stripe_count: np.int64 = self.matrix_trees[resolution].get_node_count(
-            )
-
-            ordered_stripe_ids: h5py.Dataset = create_dataset_if_not_exists(
-                'ordered_stripe_ids', stripe_info_group, shape=(stripe_count,),
-                maxshape=(None,), dtype=np.int64, **additional_dataset_creation_args
-            )
-
-            # stripe_direction: h5py.Dataset = create_dataset_if_not_exists(
-            #     'stripe_direction', stripe_info_group, shape=(stripe_count,),
-            #     maxshape=(None,), dtype=np.int8, **additional_dataset_creation_args
-            # )
-
-            # stripe_hide_type: h5py.Dataset = create_dataset_if_not_exists(
-            #     'stripe_hide_type', stripe_info_group, shape=(stripe_count,),
-            #     maxshape=(None,), dtype=np.int8, **additional_dataset_creation_args
-            # )
-
-            ordered_stripe_ids_backup: h5py.Dataset = create_dataset_if_not_exists(
-                'ordered_stripe_ids_backup', stripe_info_group, shape=(stripe_count,),
-                maxshape=(None,), dtype=np.int64, **additional_dataset_creation_args
-            )
-
-            # stripe_direction_backup: h5py.Dataset = create_dataset_if_not_exists(
-            #     'stripe_direction_backup', stripe_info_group, shape=(stripe_count,),
-            #     maxshape=(None,), dtype=np.int8, **additional_dataset_creation_args
-            # )
-
-            # stripe_hide_type_backup: h5py.Dataset = create_dataset_if_not_exists(
-            #     'stripe_hide_type_backup', stripe_info_group, shape=(stripe_count,),
-            #     maxshape=(None,), dtype=np.int8, **additional_dataset_creation_args
-            # )
-
-            get_attribute_value_or_create_if_not_exists(
-                'stripe_backup_done', False, stripe_info_group)
-
-            if get_attribute_value_or_create_if_not_exists('stripe_write_finished', False, stripe_info_group):
-                stripe_info_group.attrs['stripe_backup_done'] = False
-                stripe_info_group.attrs['stripe_write_finished'] = False
-
-            stripe_write_finished: bool = stripe_info_group.attrs.get(
-                'stripe_write_finished')
-            assert not stripe_write_finished, "Incorrect state of writing changes?"
-
-            stripe_backup_done: bool = stripe_info_group.attrs.get(
-                'stripe_backup_done')
-
-            if not stripe_backup_done:
-                ordered_stripe_ids_backup[:] = ordered_stripe_ids[:]
-                stripe_info_group.attrs['stripe_backup_done'] = True
-
-            ordered_stripe_ids_list: List[np.int64] = []
-            stripe_direction_list: np.ndarray = np.ones(
-                shape=(stripe_count,), dtype=np.int8)
-
-            # stripe_hide_type_list: np.ndarray = np.zeros(shape=(stripe_count,), dtype=np.int8)
-
-            def traversal_fn(node: StripeTree.Node) -> None:
-                stripe_descriptor: StripeDescriptor = node.stripe_descriptor
-                stripe_id: np.int64 = stripe_descriptor.stripe_id
-                ordered_stripe_ids_list.append(stripe_id)
-
-            self.matrix_trees[resolution].traverse(traversal_fn)
-
-            ordered_stripe_ids[:] = ordered_stripe_ids_list[:]
-            # stripe_direction[:] = stripe_direction_list[:]
-
-            stripe_info_group.attrs['stripe_write_finished'] = True
-
-    def dump_contig_info(
-            self,
-            f: h5py.File
-    ) -> np.ndarray:
-        contig_count: np.int64 = self.contig_tree.get_node_count()
-        contig_info_group: h5py.Group = f['/contig_info']
-        ordered_contig_ids: h5py.Dataset = create_dataset_if_not_exists(
-            'ordered_contig_ids', contig_info_group, shape=(contig_count,),
-            maxshape=(None,), dtype=np.int64, **additional_dataset_creation_args
-        )
-
-        contig_direction: h5py.Dataset = create_dataset_if_not_exists(
-            'contig_direction', contig_info_group, shape=(contig_count,),
-            maxshape=(None,), dtype=np.int8, **additional_dataset_creation_args
-        )
-
-        contig_scaffold_id: h5py.Dataset = create_dataset_if_not_exists(
-            'contig_scaffold_id', contig_info_group, shape=(contig_count,),
-            maxshape=(None,), dtype=np.int64, **additional_dataset_creation_args
-        )
-
-        ordered_contig_ids_backup: h5py.Dataset = create_dataset_if_not_exists(
-            'ordered_contig_ids_backup', contig_info_group, shape=(contig_count,),
-            maxshape=(None,), dtype=np.int64, **additional_dataset_creation_args
-        )
-
-        contig_direction_backup: h5py.Dataset = create_dataset_if_not_exists(
-            'contig_direction_backup', contig_info_group, shape=(contig_count,),
-            maxshape=(None,), dtype=np.int8, **additional_dataset_creation_args
-        )
-
-        contig_scaffold_id_backup: h5py.Dataset = create_dataset_if_not_exists(
-            'contig_scaffold_id_backup', contig_info_group, shape=(contig_count,),
-            maxshape=(None,), dtype=np.int64, **additional_dataset_creation_args
-        )
-
-        resolution_to_contig_hide_type: Dict[np.int64, h5py.Dataset] = dict()
-        resolution_to_contig_hide_type_backup: Dict[np.int64, h5py.Dataset] = dict(
-        )
-
-        for resolution in self.resolutions:
-            contig_hide_type: h5py.Dataset = create_dataset_if_not_exists(
-                'contig_hide_type', f[f'/resolutions/{resolution}/contigs'], shape=(contig_count,),
-                maxshape=(None,), dtype=np.int8, **additional_dataset_creation_args
-            )
-            contig_hide_type_backup: h5py.Dataset = create_dataset_if_not_exists(
-                'contig_hide_type_backup', f[f'/resolutions/{resolution}/contigs'], shape=(contig_count,),
-                maxshape=(None,), dtype=np.int8, **additional_dataset_creation_args
-            )
-            resolution_to_contig_hide_type[resolution] = contig_hide_type
-            resolution_to_contig_hide_type_backup[resolution] = contig_hide_type_backup
-
-        get_attribute_value_or_create_if_not_exists(
-            'contig_backup_done', False, contig_info_group)
-
-        if get_attribute_value_or_create_if_not_exists('contig_write_finished', False, contig_info_group):
-            contig_info_group.attrs['contig_backup_done'] = False
-            contig_info_group.attrs['contig_write_finished'] = False
-
-        contig_write_finished: bool = contig_info_group.attrs.get(
-            'contig_write_finished')
-        assert not contig_write_finished, "Incorrect state of writing changes?"
-
-        contig_backup_done: bool = contig_info_group.attrs.get(
-            'contig_backup_done')
-
-        if not contig_backup_done:
-            ordered_contig_ids_backup[:] = ordered_contig_ids[:]
-            contig_direction_backup[:] = contig_direction[:]
-            contig_scaffold_id_backup[:] = contig_scaffold_id[:]
-            for resolution in self.resolutions:
-                resolution_to_contig_hide_type[resolution][:
-                                                           ] = resolution_to_contig_hide_type_backup[resolution][:]
-            contig_info_group.attrs['contig_backup_done'] = True
-
-        ordered_contig_ids_list: List[np.int64] = []
-        contig_direction_list: np.ndarray = np.ones(
-            shape=(contig_count,), dtype=np.int8)
-        # ContigId -> [Resolution -> ContigHideType]
-        contig_hide_types: List[Dict[np.int64, ContigHideType]] = [
-            None] * contig_count
-        contig_old_scaffold_id: np.ndarray = np.zeros(
-            shape=(contig_count,), dtype=np.int64)
-        used_scaffold_ids: Set[np.int64] = set()
-
-        def traversal_fn(node: ContigTree.Node) -> None:
-            contig_descriptor: ContigDescriptor = node.contig_descriptor
-            contig_id: np.int64 = contig_descriptor.contig_id
-            ordered_contig_ids_list.append(contig_id)
-            s_id = None  # contig_descriptor.scaffold_id
-            if s_id is None:
-                contig_old_scaffold_id[contig_id] = -1
-            else:
-                contig_old_scaffold_id[contig_id] = s_id
-                used_scaffold_ids.add(s_id)
-            contig_direction_list[contig_id] = contig_descriptor.direction.value
-            contig_hide_types[contig_id] = contig_descriptor.presence_in_resolution
-
-        self.contig_tree.traverse(traversal_fn)
-
-        # self.scaffold_holder.remove_unused_scaffolds(used_scaffold_ids)
-        scaffold_old_id_to_new_id: Dict[np.int64, np.int64] = dict()
-        scaffold_new_id_to_old_id: np.ndarray = np.zeros(
-            shape=(len(used_scaffold_ids),), dtype=np.int64)
-        for new_id, old_id in enumerate(used_scaffold_ids):
-            scaffold_old_id_to_new_id[old_id] = new_id
-            scaffold_new_id_to_old_id[new_id] = old_id
-
-        ordered_contig_ids[:] = ordered_contig_ids_list[:]
-        contig_direction[:] = contig_direction_list[:]
-        contig_scaffold_id[:] = list(map(lambda old_s_id: scaffold_old_id_to_new_id[old_s_id] if old_s_id != -1 else -1,
-                                         contig_old_scaffold_id))[:]
-
-        for resolution in self.resolutions:
-            contig_id_to_contig_hide_type_at_resolution = np.ones(
-                shape=(contig_count,), dtype=np.int8)
-            for contig_id, contig_presence_in_resolution in enumerate(contig_hide_types):
-                contig_id_to_contig_hide_type_at_resolution[
-                    contig_id] = contig_presence_in_resolution[resolution].value
-            resolution_to_contig_hide_type[resolution][:
-                                                       ] = contig_id_to_contig_hide_type_at_resolution[:]
-
-        contig_info_group.attrs['contig_write_finished'] = True
-
-        return scaffold_new_id_to_old_id
-
-    def dump_scaffold_info(
-            self,
-            f: h5py.File,
-            scaffold_new_id_to_old_id: np.ndarray,
-    ) -> None:
-        scaffold_info_group: h5py.Group = create_group_if_not_exists(
-            'scaffold_info', f['/'])
-        with self.scaffold_tree.root_lock.gen_rlock():
-            scaffold_count: np.int64 = self.scaffold_tree.root.update_sizes().subtree_scaffolds_count
-
-        scaffold_name_ds: h5py.Dataset = create_dataset_if_not_exists(
-            'scaffold_name', scaffold_info_group, shape=(scaffold_count,),
-            maxshape=(None,), dtype=h5py.string_dtype(encoding='utf8'), **additional_dataset_creation_args,
-        )
-
-        scaffold_start_ds: h5py.Dataset = create_dataset_if_not_exists(
-            'scaffold_start', scaffold_info_group, shape=(scaffold_count,),
-            maxshape=(None,), dtype=np.int64, **additional_dataset_creation_args,
-        )
-
-        scaffold_end_ds: h5py.Dataset = create_dataset_if_not_exists(
-            'scaffold_end', scaffold_info_group, shape=(scaffold_count,),
-            maxshape=(None,), dtype=np.int64, **additional_dataset_creation_args,
-        )
-
-        scaffold_direction_ds: h5py.Dataset = create_dataset_if_not_exists(
-            'scaffold_direction', scaffold_info_group, shape=(scaffold_count,),
-            maxshape=(None,), dtype=np.int8, **additional_dataset_creation_args,
-        )
-
-        scaffold_spacer_ds: h5py.Dataset = create_dataset_if_not_exists(
-            'scaffold_spacer', scaffold_info_group, shape=(scaffold_count,),
-            maxshape=(None,), dtype=np.int64, **additional_dataset_creation_args,
-        )
-
-        scaffold_name_backup_ds: h5py.Dataset = create_dataset_if_not_exists(
-            'scaffold_name_backup', scaffold_info_group, shape=(scaffold_count,),
-            maxshape=(None,), dtype=h5py.string_dtype(encoding='utf8'), **additional_dataset_creation_args,
-        )
-
-        scaffold_start_backup_ds: h5py.Dataset = create_dataset_if_not_exists(
-            'scaffold_start_backup', scaffold_info_group, shape=(scaffold_count,),
-            maxshape=(None,), dtype=np.int64, **additional_dataset_creation_args,
-        )
-
-        scaffold_end_backup_ds: h5py.Dataset = create_dataset_if_not_exists(
-            'scaffold_end_backup', scaffold_info_group, shape=(scaffold_count,),
-            maxshape=(None,), dtype=np.int64, **additional_dataset_creation_args,
-        )
-
-        scaffold_direction_backup_ds: h5py.Dataset = create_dataset_if_not_exists(
-            'scaffold_direction_backup', scaffold_info_group, shape=(scaffold_count,),
-            maxshape=(None,), dtype=np.int8, **additional_dataset_creation_args,
-        )
-
-        scaffold_spacer_backup_ds: h5py.Dataset = create_dataset_if_not_exists(
-            'scaffold_spacer_backup', scaffold_info_group, shape=(scaffold_count,),
-            maxshape=(None,), dtype=np.int64, **additional_dataset_creation_args,
-        )
-
-        get_attribute_value_or_create_if_not_exists(
-            'scaffold_backup_done', False, scaffold_info_group)
-
-        if get_attribute_value_or_create_if_not_exists('scaffold_write_finished', False, scaffold_info_group):
-            scaffold_info_group.attrs['scaffold_backup_done'] = False
-            scaffold_info_group.attrs['scaffold_write_finished'] = False
-
-        scaffold_write_finished: bool = scaffold_info_group.attrs.get(
-            'scaffold_write_finished')
-        assert not scaffold_write_finished, "Incorrect state of writing changes?"
-
-        scaffold_backup_done: bool = scaffold_info_group.attrs.get(
-            'scaffold_backup_done')
-
-        if not scaffold_backup_done:
-            scaffold_name_backup_ds[:] = scaffold_name_ds[:]
-            scaffold_start_backup_ds[:] = scaffold_start_ds[:]
-            scaffold_end_backup_ds[:] = scaffold_end_ds[:]
-            scaffold_direction_backup_ds[:] = scaffold_direction_ds[:]
-            scaffold_spacer_backup_ds[:] = scaffold_spacer_ds[:]
-            scaffold_info_group.attrs['scaffold_backup_done'] = True
-
-        scaffold_names: List[str] = []
-        scaffold_starts: np.ndarray = np.zeros(
-            shape=(scaffold_count,), dtype=np.int64)
-        scaffold_ends: np.ndarray = np.zeros(
-            shape=(scaffold_count,), dtype=np.int64)
-        scaffold_directions: np.ndarray = np.zeros(
-            shape=(scaffold_count,), dtype=np.int8)
-        scaffold_spacers: np.ndarray = np.zeros(
-            shape=(scaffold_count,), dtype=np.int32)
-
-        for new_id, old_id in enumerate(scaffold_new_id_to_old_id):
-            scaffold_descriptor: ScaffoldDescriptor = self.scaffold_holder.get_scaffold_by_id(
-                old_id)
-            scaffold_names.append(scaffold_descriptor.scaffold_name)
-            if scaffold_descriptor.scaffold_borders is not None:
-                scaffold_starts[new_id] = scaffold_descriptor.scaffold_borders.start_contig_id
-                scaffold_ends[new_id] = scaffold_descriptor.scaffold_borders.end_contig_id
-            else:
-                scaffold_starts[new_id], scaffold_ends[new_id] = -1, -1
-            scaffold_directions[new_id] = scaffold_descriptor.scaffold_direction.value
-            scaffold_spacers[new_id] = scaffold_descriptor.spacer_length
-
-        scaffold_name_ds.resize(scaffold_count, 0)
-        scaffold_name_ds[:] = scaffold_names[:]
-
-        scaffold_start_ds.resize(scaffold_count, 0)
-        scaffold_start_ds[:] = scaffold_starts[:]
-
-        scaffold_end_ds.resize(scaffold_count, 0)
-        scaffold_end_ds[:] = scaffold_ends[:]
-
-        scaffold_direction_ds.resize(scaffold_count, 0)
-        scaffold_direction_ds[:] = scaffold_directions[:]
-
-        scaffold_spacer_ds.resize(scaffold_count, 0)
-        scaffold_spacer_ds[:] = scaffold_spacers[:]
-
-        scaffold_info_group.attrs['scaffold_write_finished'] = True
-
-    def save(self) -> None:
-        with self.hdf_file_lock.gen_wlock():
-            try:
-                self.opened_hdf_file.close()
-                self.opened_hdf_file = h5py.File(self.filepath, mode='a')
-                f = self.opened_hdf_file
-                self.dump_stripe_info(f)
-                f.flush()
-                scaffold_new_id_to_old_id = self.dump_contig_info(f)
-                f.flush()
-                self.dump_scaffold_info(f, scaffold_new_id_to_old_id)
-                f.flush()
-                self.clear_caches(saved_blocks=True)
-                self.opened_hdf_file.close()
-            except Exception as e:
-                print(
-                    f"Exception was thrown during save process: {str(e)}\nFile might be saved incorrectly.")
-                self.state = ChunkedFile.FileState.INCORRECT
-                raise e
-            finally:
-                self.opened_hdf_file = h5py.File(self.filepath, mode='r')
-
     def close(self, need_save: bool = True) -> None:
-        if need_save:
-            self.save()
         self.state = ChunkedFile.FileState.CLOSED
 
     def link_fasta(self, fasta_filename: str) -> None:

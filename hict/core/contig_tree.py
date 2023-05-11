@@ -9,7 +9,7 @@ from copy import deepcopy
 import numpy as np
 
 
-from hict.core.common import ContigDirection, ContigDescriptor, LocationInAssembly, QueryLengthUnit, ContigHideType
+from hict.core.common import ContigDirection, ContigDescriptor, QueryLengthUnit, ContigHideType
 
 from readerwriterlock import rwlock
 
@@ -260,8 +260,8 @@ class ContigTree:
     def split_node_by_count(self, t: Optional[Node], k: np.int64) -> Tuple[Optional[Node], Optional[Node]]:
         if t is None:
             return None, None
-        left_count: np.int64 = t.left.subtree_count if t.left is not None else 0
         new_t = t.push()
+        left_count: np.int64 = t.left.subtree_count if t.left is not None else 0
         if left_count >= k:
             (t1, t2) = self.split_node_by_count(new_t.left, k)
             new_t.left = t2
@@ -417,15 +417,15 @@ class ContigTree:
                     include_equal_to_the_left,
                     exclude_hidden_contigs
                 )
-            new_t.right = t1
-            new_t = new_t.push().update_sizes()
-            if t1 is not None:
-                t1 = t1.push().update_sizes()
-                # t1.parent = new_t
-            if t2 is not None:
-                t2 = t2.push().update_sizes()
-                # t2.parent = None
-            return new_t, t2
+                new_t.right = t1
+                new_t = new_t.push().update_sizes()
+                if t1 is not None:
+                    t1 = t1.push().update_sizes()
+                    # t1.parent = new_t
+                if t2 is not None:
+                    t2 = t2.push().update_sizes()
+                    # t2.parent = None
+                return new_t, t2
 
     def merge_nodes(self, t1: Optional[Node], t2: Optional[Node]) -> Optional[Node]:
         if t1 is None:

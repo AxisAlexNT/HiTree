@@ -1,14 +1,16 @@
 import multiprocessing
 import multiprocessing.managers
-from typing import List, Tuple
+from typing import List, Tuple, Union
 import copy
 from pathlib import Path
 from typing import NamedTuple, Optional
+from flask import scaffold
 
 import numpy as np
+from hict.core.scaffold_tree import ScaffoldTree
 
 from hict.core.chunked_file import ChunkedFile
-from hict.core.common import QueryLengthUnit
+from hict.core.common import ContigDescriptor, ContigDirection, QueryLengthUnit, ScaffoldDescriptor
 from hict.core.contig_tree import ContigTree
 
 
@@ -31,7 +33,7 @@ class ContactMatrixFacet(object):
 
     @staticmethod
     def get_file_descriptor(
-        filepath: str,
+        filepath: Union[Path, str],
         block_cache_size: int = 64,
         multithreading_pool_size: int = 8,
         mp_manager: Optional[multiprocessing.managers.SyncManager] = None
@@ -127,13 +129,17 @@ class ContactMatrixFacet(object):
         :param f: File descriptor.
         :param resolution: Resolution at which the contact matrix size is queried.
         """
+        tree = f.contig_tree
+        assert (
+            tree is not None
+        ), "Contig tree is not present?"
         if f.state == ChunkedFile.FileState.OPENED:
             if resolution not in f.resolutions:
                 raise ContactMatrixFacet.IncorrectResolution()
             return (
                 (
-                    f.contig_tree.root.get_sizes()[2][resolution]
-                ) if f.contig_tree.root is not None else 0
+                    tree.root.get_sizes()[2][resolution]
+                ) if tree.root is not None else 0
             )
         else:
             raise ContactMatrixFacet.IncorrectFileStateError()
@@ -164,6 +170,9 @@ class ContactMatrixFacet(object):
         :return: Position of a pixel which corresponds to the given base pair.
         """
         ct = f.contig_tree
+        assert (
+            ct is not None
+        ), "Contig tree is not present?"
         es_x0: ContigTree.ExposedSegment = ct.expose_segment_by_length(
             x0_bp, x0_bp, 0)
         x0_in_contig_position_bp = x0_bp - \
@@ -203,7 +212,6 @@ class ContactMatrixFacet(object):
             y1: np.int64,
             units: QueryLengthUnit = QueryLengthUnit.PIXELS,
             exclude_hidden_contigs: bool = True,
-            fetch_cooler_weights: bool = False,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Fetches requested area from contact matrix in the given resolution.
@@ -215,7 +223,6 @@ class ContactMatrixFacet(object):
         :param x1: End column of query expressed in given units (exclusive).
         :param y1: End row of query expressed in given units (exclusive).
         :param units: Either QueryLengthUnit.PIXELS (0-indexed) or QueryLengthUnit.BASE_PAIRS (1-indexed). In both cases borders are inclusive.
-        :param fetch_cooler_weights: Whether to fetch cooler balance bin weights. If False or no weights were present in file, returned weights are all ones. 
         :return: A tuple of (M, w_r, w_c) where M is dense 2D numpy array which contains contact map submatrix for the given region, w_r is row bin weights and w_c is column bin weights.
         """
         # x0 = max(0, x0)
@@ -253,8 +260,7 @@ class ContactMatrixFacet(object):
                 y0_in_contig_px.global_position_px,
                 1 + x1_in_contig_px.global_position_px,
                 1 + y1_in_contig_px.global_position_px,
-                exclude_hidden_contigs=exclude_hidden_contigs,
-                fetch_cooler_weights=fetch_cooler_weights
+                exclude_hidden_contigs=exclude_hidden_contigs
             )
         else:
             # submatrix = f.get_submatrix(resolution, x0, y0, 1 + x1, 1 + y1, units, exclude_hidden_contigs)
@@ -339,3 +345,82 @@ class ContactMatrixFacet(object):
         assert agp_filepath.exists() and agp_filepath.is_file(
         ), "AGP file path should point to existent file"
         f.load_assembly_from_agp(agp_filepath)
+        
+    @staticmethod
+    def get_ordered_contigs(f: ChunkedFile) -> List[Tuple[ContigDescriptor, ContigDirection]]:
+        """
+        Returns the list of contigs together with their directions in the current assembly order.
+
+        :param f: File descriptor.
+        :return A list of tuples `(ctg, dir)`.
+        """
+        tree = f.contig_tree
+        result: List[Tuple[ContigDescriptor, ContigDirection]] = []
+        
+        assert (
+            tree is not None
+        ), "No contig tree is present?"
+        
+        def traverse_fn(n: ContigTree.Node) -> None:
+            nonlocal result
+            result.append((
+                n.contig_descriptor,
+                n.true_direction()
+            ))
+        
+        with tree.root_lock.gen_rlock():
+            tree.traverse(traverse_fn)
+            
+        return result
+    
+    @staticmethod
+    def get_ordered_scaffolds(f: ChunkedFile) -> List[Tuple[Optional[ScaffoldDescriptor], int]]:
+        """
+        Returns the list of scaffolds together with their lengths in base pairs in the current assembly order. Also included are unscaffolded regions which have length provided but the descriptor is `None`. If you build prefix sum of the lengths, you'll find each scaffold's borders in base pairs.
+
+        :param f: File descriptor.
+        :return A list of tuples `(scaf, len)` where `scaf` can be either a `ScaffoldDescriptor` or `None` (for unscaffolded region) and `len` is its length in base pairs.
+        """
+        tree = f.scaffold_tree      
+        result: List[Tuple[Optional[ScaffoldDescriptor], int]] = []
+        
+        assert (
+            tree is not None
+        ), "No scaffold tree is present?"
+        
+        def traverse_fn(n: ScaffoldTree.Node) -> None:
+            nonlocal result
+            result.append((
+                n.scaffold_descriptor,
+                int(n.length_bp)
+            ))
+        
+        with tree.root_lock.gen_rlock():
+            tree.traverse(traverse_fn)
+            
+        return result
+    
+    @staticmethod
+    def get_assembly_info(f: ChunkedFile) -> Tuple[List[Tuple[ContigDescriptor, ContigDirection]], List[Tuple[Optional[ScaffoldDescriptor], int]]]:
+        """
+        Returns a pair of ordered contig descriptors and scaffold descriptors. Check docs `get_ordered_contigs` and `get_ordered_scaffolds` for the return value description.
+
+        :param f: File descriptor.
+        :return A tuple of list of ordered contig descriptots and a list of ordered scaffold descriptors.
+        """
+        
+        contig_tree = f.contig_tree      
+        scaffold_tree = f.scaffold_tree      
+                
+        assert (
+            contig_tree is not None
+        ), "Contig tree is None?"
+        assert (
+            scaffold_tree is not None
+        ), "Scaffold tree is None?"
+        
+        
+        with contig_tree.root_lock.gen_rlock(), scaffold_tree.root_lock.gen_rlock():
+            return ContactMatrixFacet.get_ordered_contigs(f), ContactMatrixFacet.get_ordered_scaffolds(f)
+            
+        
