@@ -39,24 +39,24 @@ class AGPparser(object):
             raise Exception(
                 f'unexpected symbol in agp component_type column: {toks[4]}')
 
-    def parseAGP(self, filename):
+    def parseAGP(self, filename) -> None:
         with open(filename, 'r') as agp_file:
             scaf_name: str
             cur_scaf_name: str
             start_ctg: str
             end_ctg: str
             ctg_name: str
-            ctg_dir: str
+            ctg_dir: ContigDirection
             ctg_len: int
             for i, line in enumerate(agp_file):
-                scaf_name, ctg_name, ctg_dir, ctg_len = self.parseAGPLine(line)
+                scaf_name, ctg_name, ctg_dir_str, ctg_len = self.parseAGPLine(line)
                 if scaf_name == 'N_spacer':
                     continue
                 if ctg_dir not in ("+", "-"):
                     raise Exception(
                         f'unexpected symbol in agp direction column: {ctg_dir}')
                 ctg_dir = ContigDirection(
-                    1) if ctg_dir == '+' else ContigDirection(0)
+                    1) if ctg_dir_str == '+' else ContigDirection(0)
                 self.contig_records_list.append(
                     AGPContigRecord(ctg_name, ctg_dir, ctg_len))
                 if i == 0:
