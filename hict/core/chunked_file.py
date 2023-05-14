@@ -79,11 +79,7 @@ class ChunkedFile(object):
             lock_factory = threading.RLock
         self.hdf_file_lock: rwlock.RWLockWrite = rwlock.RWLockWrite(
             lock_factory=lock_factory)
-        self.opened_hdf_file: h5py.File = h5py.File(
-            filepath,
-            mode='r',
-            swmr=True
-        )
+        
         self.fasta_processor: Optional[FASTAProcessor] = None
         self.fasta_file_lock: rwlock.RWLockFair = rwlock.RWLockFair(
             lock_factory=lock_factory)
@@ -92,8 +88,13 @@ class ChunkedFile(object):
         self.contig_id_to_contig_descriptor: Dict[np.int64, ContigDescriptor] = dict(
         )
 
-    def open(self):
+    def open(self) -> None:
         # NOTE: When file is opened in this method, we assert no one writes to it
+        self.opened_hdf_file: h5py.File = h5py.File(
+            self.filepath,
+            mode='r',
+            swmr=True
+        )        
         contig_id_to_length_by_resolution: Dict[np.int64,
                                                 Dict[np.int64, np.int64]] = dict()
         contig_id_to_hide_type_by_resolution: Dict[np.int64,
@@ -1583,77 +1584,45 @@ class ChunkedFile(object):
             scaffold_list,
         )
 
-    def get_contig_descriptors_in_range(
-            self,
-            from_bp_incl: np.int64,
-            to_bp_incl: np.int64
-    ) -> Tuple[
-        List[ContigDescriptor],
-        np.int64,
-        np.int64,
-    ]:
-        assert (
-            self.state == ChunkedFile.FileState.OPENED and self.contig_tree is not None and self.scaffold_tree is not None
-        ), "Operation requires file to be opened"
-
-        es: ContigTree.ExposedSegment = self.contig_tree.expose_segment(
-            resolution=np.int64(0),
-            start_incl=from_bp_incl,
-            end_excl=to_bp_incl,
-            units=QueryLengthUnit.BASE_PAIRS
-        )
-        descriptors: List[ContigDescriptor] = []
-
-        def traverse_fn(n: ContigTree.Node) -> None:
-            descriptors.append(n.contig_descriptor)
-            pass
-
-        self.contig_tree.commit_exposed_segment(es)
-
-        self.contig_tree.traverse_node(es.segment, traverse_fn)
-
-        _, end_contig_location_in_resolutions, _, _ = self.get_contig_location(
-            descriptors[-1].contig_id)
-
-        start_offset_bp: np.int64 = from_bp_incl - \
-            (es.less.get_sizes()[0][0] if es.less is not None else np.int64(0))
-
-        end_offset_bp: np.int64 = (
-            (es.less.get_sizes()[0][0] if es.less is not None else np.int64(0))
-            +
-            (es.segment.get_sizes()[
-                0][0] if es.segment is not None else np.int64(0))
-            -
-            to_bp_incl
-        )
-
-        return (
-            descriptors,
-            start_offset_bp,
-            end_offset_bp
-        )
-
-    def get_fasta_for_selection(
-            self, from_bp_x_incl: np.int64, to_bp_x_incl: np.int64,
-            from_bp_y_incl: np.int64, to_bp_y_incl: np.int64,
-            buf: BytesIO
+        
+    def get_fasta_for_range(
+            self, from_bp_incl: np.int64, to_bp_excl: np.int64,
+            buf: BytesIO,
+            intercontig_spacer: str = 500 * 'N'
     ) -> None:
         assert (
-            self.state == ChunkedFile.FileState.OPENED and self.contig_tree is not None and self.scaffold_tree is not None and self.fasta_processor is not None
+            (self.state == ChunkedFile.FileState.OPENED) 
+            and 
+            (self.contig_tree is not None) 
+            and 
+            (self.scaffold_tree is not None)
+            and 
+            (self.fasta_processor is not None)
         ), "Operation requires file to be opened"
-
-        (
-            descriptorsX,
-            start_offset_bpX,
-            end_offset_bpX,
-        ) = self.get_contig_descriptors_in_range(from_bp_incl=from_bp_x_incl, to_bp_incl=to_bp_x_incl)
-        (
-            descriptorsY,
-            start_offset_bpY,
-            end_offset_bpY,
-        ) = self.get_contig_descriptors_in_range(from_bp_incl=from_bp_y_incl, to_bp_incl=to_bp_y_incl)
-
-        self.fasta_processor.get_fasta_for_range(
-            buf, descriptorsX, f"{from_bp_x_incl}bp-{to_bp_x_incl}bp", start_offset_bpX, end_offset_bpX)
-        self.fasta_processor.get_fasta_for_range(
-            buf, descriptorsY, f"{from_bp_y_incl}bp-{to_bp_y_incl}bp", start_offset_bpY, end_offset_bpY)
+        
+        with self.contig_tree.root_lock.gen_rlock():
+            es = self.contig_tree.expose_segment(np.int64(0), from_bp_incl, to_bp_excl, QueryLengthUnit.BASE_PAIRS)
+            if es.segment is not None:
+                left_size = es.less.get_sizes()[0][0] if es.less is not None else np.int64(0)
+                segment_size = es.segment.get_sizes()[0][0]
+                delta_in_first_contig = from_bp_incl - left_size
+                delta_in_last_contig = (left_size + segment_size) - to_bp_excl
+                
+                descriptors: List[Tuple[ContigDescriptor, ContigDirection]] = []
+                self.contig_tree.traverse_node(es.segment, lambda n: descriptors.append((n.contig_descriptor, n.true_direction())))
+                
+                self.fasta_processor.get_fasta_for_range(
+                    buf,
+                    descriptors,
+                    f"{from_bp_incl}bp-{to_bp_excl}bp",
+                    delta_in_first_contig,
+                    delta_in_last_contig,
+                    intercontig_spacer=intercontig_spacer
+                )
+                
+            
+                
+            
+            
+        
+        
