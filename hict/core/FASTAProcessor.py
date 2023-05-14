@@ -63,10 +63,10 @@ class FASTAProcessor(object):
     ) -> str:
         dna_seq = self.records[contig_name].seq
         if contig_direction == ContigDirection.FORWARD:
-            return str(dna_seq[offset_from_start: -offset_before_end] if (offset_before_end > 0) else dna_seq[offset_from_start:])
+            return str(dna_seq[offset_from_start: (-offset_before_end if (offset_before_end > 0) else None)])
         elif contig_direction == ContigDirection.REVERSED:
             rc_seq = dna_seq.reverse_complement()
-            return str(rc_seq[offset_from_start: -offset_before_end] if (offset_before_end > 0) else rc_seq[offset_from_start:])
+            return str(rc_seq[offset_from_start: (-offset_before_end if (offset_before_end > 0) else None)])
         else:
             raise Exception(
                 f"Incorrect contig direction: {str(contig_direction.name)}={str(contig_direction.value)}")
