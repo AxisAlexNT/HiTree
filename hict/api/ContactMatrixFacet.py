@@ -455,3 +455,28 @@ class ContactMatrixFacet(object):
             to_resolution,
             to_units
         )
+    
+    @staticmethod    
+    def split_contig_at_bin(
+        f: ChunkedFile,
+        split_position: np.int64,
+        split_resolution: np.int64,        
+        split_units: QueryLengthUnit
+    ) -> None:
+        """_Splits contig at given position._
+        Removes the bin at highest possible resolution which holds the given position. Other resolutions have their bins split between two contigs without any removal.
+
+        Args:
+            f (ChunkedFile): _File descriptor._
+            split_position (np.int64): _Position at which to perform the split (see comments above)._
+            split_resolution (np.int64): _Resolution at which the position is provided (pass 0 if it's given in base pairs)._
+            split_units (QueryLengthUnit): _Units of position._
+
+        Returns:
+            _type_: _description_
+        """
+        return f.split_contig_at_bin(
+            split_position,
+            split_resolution,
+            split_units
+        )

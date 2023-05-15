@@ -1216,7 +1216,7 @@ class ChunkedFile(object):
         self,
         split_position: np.int64,
         split_resolution: np.int64,        
-        units: QueryLengthUnit
+        split_units: QueryLengthUnit
     ) -> None:
         assert (
             (self.state == ChunkedFile.FileState.OPENED) 
@@ -1226,7 +1226,7 @@ class ChunkedFile(object):
             (self.scaffold_tree is not None) 
         ), "Operation requires file to be opened"
         
-        if units == QueryLengthUnit.BASE_PAIRS:
+        if split_units == QueryLengthUnit.BASE_PAIRS:
             assert (
                 split_resolution == 0
             ), "In bp query resolution should be set to 0"
@@ -1237,7 +1237,7 @@ class ChunkedFile(object):
             split_position_bins = self.convert_units(
                 position=split_position,
                 from_resolution=split_resolution,
-                from_units=units,
+                from_units=split_units,
                 to_resolution=min_resolution,
                 to_units=QueryLengthUnit.BINS                
             )
@@ -1253,7 +1253,7 @@ class ChunkedFile(object):
             if es.less is not None:
                 left_bins = es.less.get_sizes()[0][min_resolution]
                 
-            split_position_bp = self.convert_units(split_position, split_resolution, units, np.int64(0), QueryLengthUnit.BASE_PAIRS)
+            split_position_bp = self.convert_units(split_position, split_resolution, split_units, np.int64(0), QueryLengthUnit.BASE_PAIRS)
             
             assert (
                 es.segment is not None
@@ -1269,8 +1269,6 @@ class ChunkedFile(object):
             old_contig = node.contig_descriptor
             
             delta_from_contig_start = split_position_bins - left_bins
-            
-            # cd1 = ContigDescriptor.make_contig_descriptor()
             
             max_contig_id = max(map(lambda cd: cd.contig_id, self.contig_id_to_contig_descriptor.values()))
             new_contig_ids: Tuple[np.int64, np.int64] = (1+max_contig_id, 2+max_contig_id)
