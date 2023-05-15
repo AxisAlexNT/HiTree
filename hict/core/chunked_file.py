@@ -1222,6 +1222,8 @@ class ChunkedFile(object):
             (self.state == ChunkedFile.FileState.OPENED) 
             and 
             (self.contig_tree is not None) 
+            and
+            (self.scaffold_tree is not None) 
         ), "Operation requires file to be opened"
         
         if units == QueryLengthUnit.BASE_PAIRS:
@@ -1231,7 +1233,7 @@ class ChunkedFile(object):
             
         min_resolution = min(self.resolutions)
         
-        with self.contig_tree.root_lock.gen_wlock():
+        with self.contig_tree.root_lock.gen_wlock(), self.scaffold_tree.root_lock.gen_wlock():
             split_position_bins = self.convert_units(
                 position=split_position,
                 from_resolution=split_resolution,
@@ -1250,6 +1252,8 @@ class ChunkedFile(object):
             left_bins = 0
             if es.less is not None:
                 left_bins = es.less.get_sizes()[0][min_resolution]
+                
+            split_position_bp = self.convert_units(split_position, split_resolution, units, np.int64(0), QueryLengthUnit.BASE_PAIRS)
             
             assert (
                 es.segment is not None
@@ -1380,6 +1384,11 @@ class ChunkedFile(object):
             
             self.contig_tree.commit_exposed_segment(new_exposed_segment)
             
+            self.scaffold_tree.remove_segment_from_assembly(
+                start_bp_incl=split_position_bp,
+                end_bp_excl=split_position_bp + min_resolution
+            )
+        
                 
             
             
