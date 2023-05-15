@@ -1620,6 +1620,86 @@ class ChunkedFile(object):
                     intercontig_spacer=intercontig_spacer
                 )
                 
+    def convert_units(
+        self,
+        x: np.int64,
+        from_resolution: np.int64,
+        from_units: QueryLengthUnit,
+        to_resolution: np.int64,
+        to_units: QueryLengthUnit
+    ) -> np.int64:
+        assert (
+            (self.state == ChunkedFile.FileState.OPENED) 
+            and 
+            (self.contig_tree is not None) 
+        ), "Operation requires file to be opened"
+                
+        assert (
+            (from_units == QueryLengthUnit.BASE_PAIRS) == (from_resolution == 0)
+        ), "If converting from base pairs, set from_resolution=0"
+        assert (
+            (to_units == QueryLengthUnit.BASE_PAIRS) == (to_resolution == 0)
+        ), "If converting to base pairs, set to_resolution=0"
+        
+        es = self.contig_tree.expose_segment(
+            from_resolution,
+            x,
+            x+1,
+            from_units
+        )
+        left_from_units = 0
+        left_to_units = 0
+        if es.less is not None:
+            left_from_units = es.less.get_sizes()[{QueryLengthUnit.BASE_PAIRS: 0, QueryLengthUnit.BINS: 0, QueryLengthUnit.PIXELS: 2}[from_units]][from_resolution]
+            left_to_units = es.less.get_sizes()[{QueryLengthUnit.BASE_PAIRS: 0, QueryLengthUnit.BINS: 0, QueryLengthUnit.PIXELS: 2}[to_units]][to_resolution]
+            
+        delta_from_units = x - left_from_units
+        delta_bp = delta_from_units if from_units == QueryLengthUnit.BASE_PAIRS else (delta_from_units*from_resolution)
+        
+        delta_to_units = delta_bp if to_units == QueryLengthUnit.BASE_PAIRS else (delta_bp//to_resolution)
+        
+        return left_to_units + delta_to_units           
+            
+                
+                
+    def split_contig_at_bin(
+        self,
+        resolution: np.int64,
+        split_position: np.int64,
+        units: QueryLengthUnit
+    ) -> None:
+        assert (
+            (self.state == ChunkedFile.FileState.OPENED) 
+            and 
+            (self.contig_tree is not None) 
+        ), "Operation requires file to be opened"
+        
+        if units == QueryLengthUnit.BASE_PAIRS:
+            assert (
+                resolution == 0
+            ), "In bp query resolution should be set to 0"
+        
+        with self.contig_tree.root_lock.gen_wlock():
+            es = self.contig_tree.expose_segment(
+                resolution=resolution,
+                start_incl=split_position,
+                end_excl=split_position+1,
+                units=units
+            )
+            
+            assert (
+                es.segment is not None
+            ), "Requested bp falls outside of any contig?"
+            
+            left_units = 0
+            left_bp = 0
+            
+            if es.less is not None:
+                pass
+            
+            pass            
+        pass
+                
             
                 
             
