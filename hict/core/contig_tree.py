@@ -211,6 +211,23 @@ class ContigTree:
 
         def rightmost(self, push: bool = True):
             return ContigTree.get_rightmost(self, push)
+        
+        @staticmethod
+        def merge_nodes(t1: Optional['ContigTree.Node'], t2: Optional['ContigTree.Node']) -> Optional['ContigTree.Node']:
+            if t1 is None:
+                return t2
+            if t2 is None:
+                return t1
+            new_t1 = t1.push()
+            new_t2 = t2.push()
+            if new_t1.y_priority > new_t2.y_priority:
+                new_t1.right = ContigTree.Node.merge_nodes(new_t1.right, new_t2)
+                new_t1 = new_t1.update_sizes()
+                return new_t1
+            else:
+                new_t2.left = ContigTree.Node.merge_nodes(new_t1, new_t2.left)
+                new_t2 = new_t2.update_sizes()
+                return new_t2
 
     root: Optional[Node] = None
 
@@ -428,28 +445,7 @@ class ContigTree:
                 return new_t, t2
 
     def merge_nodes(self, t1: Optional[Node], t2: Optional[Node]) -> Optional[Node]:
-        if t1 is None:
-            return t2.clone()
-        if t2 is None:
-            return t1.clone()
-        new_t1 = t1.push()
-        new_t2 = t2.push()
-        if new_t1.y_priority > new_t2.y_priority:
-            new_t1.right = self.merge_nodes(new_t1.right, new_t2)
-            new_t1 = new_t1.update_sizes()
-            # if new_t1.left is not None:
-            #     new_t1.left.parent = new_t1
-            # if new_t1.right is not None:
-            #     new_t1.right.parent = new_t1
-            return new_t1
-        else:
-            new_t2.left = self.merge_nodes(new_t1, new_t2.left)
-            new_t2 = new_t2.update_sizes()
-            # if new_t2.left is not None:
-            #     new_t2.left.parent = new_t2
-            # if new_t2.right is not None:
-            #     new_t2.right.parent = new_t2
-            return new_t2
+        return ContigTree.Node.merge_nodes(t1, t2)
 
     # def get_left_subsize(
     #         self,

@@ -427,7 +427,7 @@ class ContactMatrixFacet(object):
     @staticmethod
     def convert_units(
         f: ChunkedFile,
-        x: np.int64,
+        position: np.int64,
         from_resolution: np.int64,
         from_units: QueryLengthUnit,
         to_resolution: np.int64,
@@ -439,7 +439,7 @@ class ContactMatrixFacet(object):
 
         Args:
             f (ChunkedFile): _A file descriptor._
-            x (np.int64): _Position that should be converted._
+            position (np.int64): _Position that should be converted._
             from_resolution (np.int64): _Resolution, at which that position was taken (pass 0 if converting from base pairs)._
             from_units (QueryLengthUnit): _Units of the given position._
             to_resolution (np.int64): _Target resolution to which convert the given position (pass 0 if converting to base pairs)._
@@ -449,7 +449,7 @@ class ContactMatrixFacet(object):
             np.int64: _A position at target resolution expressed in target units._
         """
         return f.convert_units(
-            x,
+            position,
             from_resolution,
             from_units,
             to_resolution,

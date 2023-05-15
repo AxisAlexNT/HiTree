@@ -1622,7 +1622,7 @@ class ChunkedFile(object):
                 
     def convert_units(
         self,
-        x: np.int64,
+        position: np.int64,
         from_resolution: np.int64,
         from_units: QueryLengthUnit,
         to_resolution: np.int64,
@@ -1643,8 +1643,8 @@ class ChunkedFile(object):
         
         es = self.contig_tree.expose_segment(
             from_resolution,
-            x,
-            x+1,
+            position,
+            position+1,
             from_units
         )
         left_from_units = 0
@@ -1653,7 +1653,7 @@ class ChunkedFile(object):
             left_from_units = es.less.get_sizes()[{QueryLengthUnit.BASE_PAIRS: 0, QueryLengthUnit.BINS: 0, QueryLengthUnit.PIXELS: 2}[from_units]][from_resolution]
             left_to_units = es.less.get_sizes()[{QueryLengthUnit.BASE_PAIRS: 0, QueryLengthUnit.BINS: 0, QueryLengthUnit.PIXELS: 2}[to_units]][to_resolution]
             
-        delta_from_units = x - left_from_units
+        delta_from_units = position - left_from_units
         delta_bp = delta_from_units if from_units == QueryLengthUnit.BASE_PAIRS else (delta_from_units*from_resolution)
         
         delta_to_units = delta_bp if to_units == QueryLengthUnit.BASE_PAIRS else (delta_bp//to_resolution)
@@ -1664,8 +1664,8 @@ class ChunkedFile(object):
                 
     def split_contig_at_bin(
         self,
-        resolution: np.int64,
         split_position: np.int64,
+        split_resolution: np.int64,        
         units: QueryLengthUnit
     ) -> None:
         assert (
@@ -1676,30 +1676,159 @@ class ChunkedFile(object):
         
         if units == QueryLengthUnit.BASE_PAIRS:
             assert (
-                resolution == 0
+                split_resolution == 0
             ), "In bp query resolution should be set to 0"
+            
+        min_resolution = min(self.resolutions)
         
         with self.contig_tree.root_lock.gen_wlock():
-            es = self.contig_tree.expose_segment(
-                resolution=resolution,
-                start_incl=split_position,
-                end_excl=split_position+1,
-                units=units
+            split_position_bins = self.convert_units(
+                position=split_position,
+                from_resolution=split_resolution,
+                from_units=units,
+                to_resolution=min_resolution,
+                to_units=QueryLengthUnit.BINS                
             )
+            
+            es = self.contig_tree.expose_segment(
+                min_resolution,
+                split_position_bins, 
+                split_position_bins+1,
+                units=QueryLengthUnit.BINS
+            )
+            
+            left_bins = 0
+            if es.less is not None:
+                left_bins = es.less.get_sizes()[0][min_resolution]
             
             assert (
                 es.segment is not None
-            ), "Requested bp falls outside of any contig?"
+            ), "Split position does not fall into any contig?"
             
-            left_units = 0
-            left_bp = 0
+            segment_sizes = es.segment.get_sizes()
             
-            if es.less is not None:
-                pass
+            assert (
+                segment_sizes[1] == 1
+            ), f"Split position should fall into exactly one contig (currently segment holds {segment_sizes[1]} nodes)"
             
-            pass            
-        pass
+            node = es.segment
+            old_contig = node.contig_descriptor
+            
+            delta_from_contig_start = split_position_bins - left_bins
+            
+            # cd1 = ContigDescriptor.make_contig_descriptor()
+            
+            max_contig_id = max(map(lambda cd: cd.contig_id, self.contig_id_to_contig_descriptor.values()))
+            new_contig_ids: Tuple[np.int64, np.int64] = (1+max_contig_id, 2+max_contig_id)
+            new_contig_names: Tuple[str, str] = (f"{old_contig.contig_name}_1", f"{old_contig.contig_name}_2")
+            new_contig_length_bps: Tuple[np.int64, np.int64] = (delta_from_contig_start*min_resolution, old_contig.contig_length_at_resolution[0] - (1+delta_from_contig_start)*min_resolution)
+            
+            new_contig_length_at_resolution: Tuple[Dict[np.int64, np.int64], Dict[np.int64, np.int64]] = (dict(), dict())
+            new_contig_presence_in_resolution: Tuple[Dict[np.int64, ContigHideType], Dict[np.int64, ContigHideType]] = (dict(), dict())
+            new_atus: Tuple[Dict[np.int64, List[ATUDescriptor]], Dict[np.int64, List[ATUDescriptor]]] = (dict(), dict())
+            
+            for resolution in self.resolutions:
                 
+                delta_from_start_at_resolution = self.convert_units(
+                    delta_from_contig_start,
+                    min_resolution, 
+                    QueryLengthUnit.BINS,
+                    resolution,
+                    QueryLengthUnit.BINS
+                )
+                
+                if resolution == min_resolution:
+                    new_contig_length_at_resolution[0][resolution] = delta_from_contig_start
+                    new_contig_length_at_resolution[1][resolution] = old_contig.contig_length_at_resolution[resolution] - delta_from_contig_start - 1
+                else:
+                    new_contig_length_at_resolution[0][resolution] = delta_from_start_at_resolution
+                    new_contig_length_at_resolution[1][resolution] = old_contig.contig_length_at_resolution[resolution] - delta_from_start_at_resolution
+                    
+                def copy_true_atu(atu: ATUDescriptor, contig_direction: ContigDirection) -> ATUDescriptor:
+                    new_atu = atu.clone()
+                    if contig_direction == ContigDirection.REVERSED:
+                        new_atu.direction = ATUDirection(1-new_atu.direction.value)
+                    return new_atu
+                    
+                source_atus = tuple(map(lambda old_atu: copy_true_atu(old_atu, node.direction), old_contig.atus[resolution]))
+                source_atus_prefix_sum = old_contig.atu_prefix_sum_length_bins[resolution]
+                if node.direction == ContigDirection.REVERSED:
+                    source_atus_prefix_sum = source_atus_prefix_sum.copy()
+                    source_atus_prefix_sum[:-1] = source_atus_prefix_sum[-1] - np.flip(source_atus_prefix_sum)[1:]
+                    source_atus = tuple(reversed(source_atus))
+                    
+                index_of_atu_where_split_occurs = np.searchsorted(source_atus_prefix_sum, delta_from_start_at_resolution, side='left')                    
+                old_join_atu = source_atus[index_of_atu_where_split_occurs]
+                atus_l = list(source_atus[:index_of_atu_where_split_occurs])
+                atus_r = list(source_atus[-1+1+index_of_atu_where_split_occurs:])
+                atus_l_length_bins = source_atus_prefix_sum[index_of_atu_where_split_occurs]
+                atus_r_length_bins = source_atus_prefix_sum[-1] - source_atus_prefix_sum[1+index_of_atu_where_split_occurs]
+                delta_l = delta_from_start_at_resolution - atus_l_length_bins
+                if delta_l > 0:
+                    atus_l.append(
+                        ATUDescriptor.make_atu_descriptor(
+                            old_join_atu.stripe_descriptor,
+                            old_join_atu.start_index_in_stripe_incl if old_join_atu.direction == ATUDirection.FORWARD else (old_join_atu.end_index_in_stripe_excl - delta_l),
+                            (old_join_atu.start_index_in_stripe_incl + delta_l) if old_join_atu.direction == ATUDirection.FORWARD else old_join_atu.end_index_in_stripe_excl,
+                            old_join_atu.direction                                
+                        )
+                    )
+                    
+                assert (
+                    atus_l_length_bins + delta_l == new_contig_length_at_resolution[0][resolution]
+                ), "Unexpected length of left part"
+                
+                delta_r_positive = new_contig_length_at_resolution[1][resolution] - atus_r_length_bins
+                
+                if delta_r_positive > 0:
+                    atus_r[0] = ATUDescriptor.make_atu_descriptor(
+                            old_join_atu.stripe_descriptor,
+                            (old_join_atu.start_index_in_stripe_incl + delta_r_positive) if old_join_atu.direction == ATUDirection.FORWARD else old_join_atu.start_index_in_stripe_incl,
+                            old_join_atu.end_index_in_stripe_excl if old_join_atu.direction == ATUDirection.FORWARD else (old_join_atu.end_index_in_stripe_excl - delta_r_positive),
+                            old_join_atu.direction     
+                        )
+                else:
+                    atus_r = atus_r[1:]
+                    
+                    
+                assert (
+                    atus_r_length_bins + delta_r_positive == new_contig_length_at_resolution[1][resolution]
+                ), "Unexpected length of right part"
+
+                
+                if old_contig.presence_in_resolution[resolution] in (
+                    ContigHideType.FORCED_HIDDEN, ContigHideType.FORCED_SHOWN
+                ):
+                    new_contig_length_at_resolution[0][resolution] = old_contig.presence_in_resolution[resolution] 
+                    new_contig_length_at_resolution[1][resolution] = old_contig.presence_in_resolution[resolution] 
+                else:
+                    new_contig_presence_in_resolution[0][resolution] = ContigHideType.AUTO_SHOWN if new_contig_length_bps[0] >= resolution else ContigHideType.AUTO_HIDDEN
+                    new_contig_presence_in_resolution[1][resolution] = ContigHideType.AUTO_SHOWN if new_contig_length_bps[1] >= resolution else ContigHideType.AUTO_HIDDEN
+                    
+                new_atus[0][resolution] = atus_l
+                new_atus[1][resolution] = atus_r
+                
+            new_contigs = tuple(
+                map(
+                    lambda t: ContigDescriptor.make_contig_descriptor(*t), 
+                    zip(
+                        new_contig_ids,
+                        new_contig_names,
+                        new_contig_length_bps,
+                        new_contig_length_at_resolution,
+                        new_contig_presence_in_resolution,
+                        new_atus
+                    )
+                )
+            )
+            
+            new_nodes = tuple(map(lambda cd: ContigTree.Node.make_new_node_from_descriptor(cd, node.direction), new_contigs))
+            
+            new_segment_part = ContigTree.Node.merge_nodes(*new_nodes)
+            
+            new_exposed_segment = ContigTree.ExposedSegment(es.less, new_segment_part, es.greater)
+            
+            self.contig_tree.commit_exposed_segment(new_exposed_segment)
             
                 
             
