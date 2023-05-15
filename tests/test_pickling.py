@@ -147,7 +147,6 @@ def test_compare_with_cooler(
     del cooler_dense
     del my_dense
     del cooler_file
-    hict_file.clear_caches(saved_blocks=True)
     gc.collect()
 
 
@@ -220,7 +219,6 @@ def test_compare_with_cooler_by_bins(
     del cooler_dense
     del my_dense
     del cooler_file
-    hict_file.clear_caches(saved_blocks=True)
     gc.collect()
 
 
@@ -329,7 +327,6 @@ def compare_square_queries_with_cooler(
     del cooler_dense
     del my_dense
     del cooler_file
-    hict_file.clear_caches(saved_blocks=True)
     gc.collect()
 
 
@@ -450,7 +447,6 @@ def compare_square_queries_with_cooler_by_bins(
     del cooler_dense
     del my_dense
     del cooler_file
-    hict_file.clear_caches(saved_blocks=True)
     gc.collect()
 
 
@@ -565,7 +561,6 @@ def compare_rectangular_queries_with_cooler(
     del cooler_dense
     del my_dense
     del cooler_file
-    hict_file.clear_caches(saved_blocks=True)
     gc.collect()
 
 
@@ -637,5 +632,4 @@ def test_hict_file_should_be_symmetric(
     ), "HiC contact matrix returned by HiCT should be symmetric"
     del plain_dense
     del transposed_dense
-    hict_file.clear_caches(saved_blocks=True)
     gc.collect()
