@@ -43,53 +43,55 @@ class FASTAProcessor(object):
             if ctg_order == last_ctg_order:
                 e_offset = offset_from_end_bp
             out_sequence_list.append(
-                self.get_dna_string_for_single_contig(
-                    ctg_name,
+                self.get_cropped_dna_string_for_single_contig(
+                    ctg,
                     ctg_dir,
-                    s_offset, e_offset
+                    s_offset,
+                    e_offset
                 )
             )
         out_sequence = intercontig_spacer.join(out_sequence_list)
         out_record: bytes = f">{out_fasta_header}\n{out_sequence}".encode(
             encoding='utf-8')
         file_like.write(out_record)
-
-    def get_dna_string_for_single_contig(
-            self,
-            contig_name: str,
-            contig_direction: ContigDirection,
-            offset_from_start: int = 0,
-            offset_before_end: int = 0
+        
+    def get_cropped_dna_string_for_single_contig(
+        self,
+        ctg: ContigDescriptor,
+        ctg_dir: ContigDirection,
+        offset_from_start: int = 0,
+        offset_before_end: int = 0
     ) -> str:
-        dna_seq = self.records[contig_name].seq
-        if contig_direction == ContigDirection.FORWARD:
-            return str(dna_seq[offset_from_start: (-offset_before_end if (offset_before_end > 0) else None)])
-        elif contig_direction == ContigDirection.REVERSED:
-            rc_seq = dna_seq.reverse_complement()
+        base_dna_seq = self.records[ctg.contig_name_in_source_fasta]
+        contig_dna_seq = base_dna_seq[ctg.offset_inside_fasta_contig:(ctg.offset_inside_fasta_contig+ctg.contig_length_at_resolution[0])]
+        if ctg_dir == ContigDirection.FORWARD:
+            return str(contig_dna_seq[offset_from_start: (-offset_before_end if (offset_before_end > 0) else None)])
+        elif ctg_dir == ContigDirection.REVERSED:
+            rc_seq = contig_dna_seq.reverse_complement()
             return str(rc_seq[offset_from_start: (-offset_before_end if (offset_before_end > 0) else None)])
         else:
             raise Exception(
-                f"Incorrect contig direction: {str(contig_direction.name)}={str(contig_direction.value)}")
+                f"Incorrect contig direction: {str(ctg_dir.name)}={str(ctg_dir.value)}"
+            )
 
     def get_dna_string_for_multiple_contigs_inside_scaffold(
             self,
             scaffold_descriptor: ScaffoldDescriptor,
             ordered_contig_descriptors: List[Tuple[ContigDescriptor, ContigDirection]],
-            contig_id_to_contig_name: List[str],
     ) -> str:
         ctg_count: int = len(ordered_contig_descriptors)
         if ctg_count <= 0:
             raise Exception("Contig count must be positive")
         elif ctg_count == 1:
-            return self.get_dna_string_for_single_contig(
-                contig_id_to_contig_name[ordered_contig_descriptors[0][0].contig_id],
+            return self.get_cropped_dna_string_for_single_contig(
+                ordered_contig_descriptors[0][0],
                 ordered_contig_descriptors[0][1]
             )
         else:
             spacer_str: str = 'N' * scaffold_descriptor.spacer_length
             return spacer_str.join(
-                self.get_dna_string_for_single_contig(
-                    contig_id_to_contig_name[ctg_descr.contig_id],
+                self.get_cropped_dna_string_for_single_contig(
+                    ctg_descr,
                     ctg_dir
                 ) for ctg_descr, ctg_dir in ordered_contig_descriptors
             )
@@ -98,13 +100,11 @@ class FASTAProcessor(object):
             self,
             scaffold_descriptor: ScaffoldDescriptor,
             ordered_contig_descriptors: List[Tuple[ContigDescriptor, ContigDirection]],
-            contig_id_to_contig_name: List[str],
     ) -> str:
         out_str = f">{scaffold_descriptor.scaffold_name}\n"
         out_str += self.get_dna_string_for_multiple_contigs_inside_scaffold(
             scaffold_descriptor,
             ordered_contig_descriptors,
-            contig_id_to_contig_name
         )
         out_str += '\n'
         return out_str
@@ -119,8 +119,8 @@ class FASTAProcessor(object):
             contig_name = contig_descriptor.contig_name
         out_str = ''
         out_str += f'>{contig_name}\n'
-        out_str += self.get_dna_string_for_single_contig(
-            contig_name,
+        out_str += self.get_cropped_dna_string_for_single_contig(
+            contig_descriptor,
             contig_direction
         )
         out_str += '\n'
@@ -161,7 +161,6 @@ class FASTAProcessor(object):
                 scaffold_record_str: str = self.get_fasta_record_for_scaffold(
                     scaffold_descriptor,
                     finalization_record[1],
-                    contig_id_to_contig_name
                 )
                 scaffold_record_bytes: bytes = scaffold_record_str.encode(
                     encoding='utf-8')

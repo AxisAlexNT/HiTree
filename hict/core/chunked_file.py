@@ -1272,12 +1272,21 @@ class ChunkedFile(object):
             
             max_contig_id = max(map(lambda cd: cd.contig_id, self.contig_id_to_contig_descriptor.values()))
             new_contig_ids: Tuple[np.int64, np.int64] = (1+max_contig_id, 2+max_contig_id)
-            new_contig_names: Tuple[str, str] = (f"{old_contig.contig_name}_1", f"{old_contig.contig_name}_2")
+            new_contig_names: Tuple[str, str] = (f"{old_contig.contig_name}_hictsplit_1", f"{old_contig.contig_name}_hictsplit_2")
             new_contig_length_bps: Tuple[np.int64, np.int64] = (delta_from_contig_start*min_resolution, old_contig.contig_length_at_resolution[0] - (1+delta_from_contig_start)*min_resolution)
             
             new_contig_length_at_resolution: Tuple[Dict[np.int64, np.int64], Dict[np.int64, np.int64]] = (dict(), dict())
             new_contig_presence_in_resolution: Tuple[Dict[np.int64, ContigHideType], Dict[np.int64, ContigHideType]] = (dict(), dict())
             new_atus: Tuple[Dict[np.int64, List[ATUDescriptor]], Dict[np.int64, List[ATUDescriptor]]] = (dict(), dict())
+            
+            new_contig_names_in_source_fasta: Tuple[str, str] = (old_contig.contig_name_in_source_fasta, old_contig.contig_name_in_source_fasta)
+            new_offsets_inside_fasta_contig: Tuple[np.int64, np.int64]
+            if node.direction == ContigDirection.FORWARD:
+                new_offsets_inside_fasta_contig = (old_contig.offset_inside_fasta_contig, old_contig.offset_inside_fasta_contig + (1+delta_from_contig_start)*min_resolution)
+            else:
+                new_offsets_inside_fasta_contig = (old_contig.offset_inside_fasta_contig + (1+delta_from_contig_start)*min_resolution, old_contig.offset_inside_fasta_contig)
+
+            
             
             for resolution in self.resolutions:
                 
@@ -1369,7 +1378,9 @@ class ChunkedFile(object):
                         new_contig_length_bps,
                         new_contig_length_at_resolution,
                         new_contig_presence_in_resolution,
-                        new_atus
+                        new_atus,
+                        new_contig_names_in_source_fasta,
+                        new_offsets_inside_fasta_contig
                     )
                 )
             )
