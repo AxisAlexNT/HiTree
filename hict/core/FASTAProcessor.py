@@ -130,7 +130,7 @@ class FASTAProcessor(object):
             file_like,
             ordered_finalization_records: List[Tuple[Optional[ScaffoldDescriptor], List[Tuple[ContigDescriptor, ContigDirection]]]],
     ):
-        for record_order, (opt_scaffold, ctgs) in enumerate(ordered_finalization_records):
+        for opt_scaffold, ctgs in ordered_finalization_records:
             if opt_scaffold is None:
                 assert (
                     len(ctgs) == 1
