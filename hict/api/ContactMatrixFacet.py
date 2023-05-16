@@ -356,24 +356,7 @@ class ContactMatrixFacet(object):
         :param f: File descriptor.
         :return A list of tuples `(ctg, dir)`.
         """
-        tree = f.contig_tree
-        result: List[Tuple[ContigDescriptor, ContigDirection]] = []
-
-        assert (
-            tree is not None
-        ), "No contig tree is present?"
-
-        def traverse_fn(n: ContigTree.Node) -> None:
-            nonlocal result
-            result.append((
-                n.contig_descriptor,
-                n.true_direction()
-            ))
-
-        with tree.root_lock.gen_rlock():
-            tree.traverse(traverse_fn)
-
-        return result
+        return f.get_ordered_contigs()
 
     @staticmethod
     def get_ordered_scaffolds(f: ChunkedFile) -> List[Tuple[Optional[ScaffoldDescriptor], int]]:
@@ -383,24 +366,7 @@ class ContactMatrixFacet(object):
         :param f: File descriptor.
         :return A list of tuples `(scaf, len)` where `scaf` can be either a `ScaffoldDescriptor` or `None` (for unscaffolded region) and `len` is its length in base pairs.
         """
-        tree = f.scaffold_tree
-        result: List[Tuple[Optional[ScaffoldDescriptor], int]] = []
-
-        assert (
-            tree is not None
-        ), "No scaffold tree is present?"
-
-        def traverse_fn(n: ScaffoldTree.Node) -> None:
-            nonlocal result
-            result.append((
-                n.scaffold_descriptor,
-                int(n.length_bp)
-            ))
-
-        with tree.root_lock.gen_rlock():
-            tree.traverse(traverse_fn)
-
-        return result
+        return f.get_ordered_scaffolds()
 
     @staticmethod
     def get_assembly_info(f: ChunkedFile) -> Tuple[List[Tuple[ContigDescriptor, ContigDirection]], List[Tuple[Optional[ScaffoldDescriptor], int]]]:
@@ -410,19 +376,7 @@ class ContactMatrixFacet(object):
         :param f: File descriptor.
         :return A tuple of list of ordered contig descriptots and a list of ordered scaffold descriptors.
         """
-
-        contig_tree = f.contig_tree
-        scaffold_tree = f.scaffold_tree
-
-        assert (
-            contig_tree is not None
-        ), "Contig tree is None?"
-        assert (
-            scaffold_tree is not None
-        ), "Scaffold tree is None?"
-
-        with contig_tree.root_lock.gen_rlock(), scaffold_tree.root_lock.gen_rlock():
-            return ContactMatrixFacet.get_ordered_contigs(f), ContactMatrixFacet.get_ordered_scaffolds(f)
+        return f.get_assembly_info()
 
     @staticmethod
     def convert_units(

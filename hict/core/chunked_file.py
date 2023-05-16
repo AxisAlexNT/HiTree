@@ -16,7 +16,6 @@ import numpy as np
 from readerwriterlock import rwlock
 import scipy
 from scipy.sparse import coo_array, csr_array, csc_array
-from hict.api.ContactMatrixFacet import ContactMatrixFacet
 from hict.core.scaffold_tree import ScaffoldTree
 
 from hict.core.AGPProcessor import *
@@ -1015,7 +1014,7 @@ class ChunkedFile(object):
             if self.fasta_processor is None:
                 raise Exception("FASTA File is not linked")
             
-            contigs_and_dirs, scaffolds_and_lengths = ContactMatrixFacet.get_assembly_info(self)
+            contigs_and_dirs, scaffolds_and_lengths = self.get_assembly_info()
 
             ordered_finalization_records: List[Tuple[Optional[ScaffoldDescriptor], List[Tuple[ContigDescriptor, ContigDirection]]]] = [
             ]
@@ -1389,6 +1388,58 @@ class ChunkedFile(object):
                 end_bp_excl=split_position_bp + min_resolution
             )
         
+        
+    def get_ordered_contigs(self) -> List[Tuple[ContigDescriptor, ContigDirection]]:
+        tree = self.contig_tree
+        result: List[Tuple[ContigDescriptor, ContigDirection]] = []
+
+        assert (
+            tree is not None
+        ), "No contig tree is present?"
+
+        def traverse_fn(n: ContigTree.Node) -> None:
+            nonlocal result
+            result.append((
+                n.contig_descriptor,
+                n.true_direction()
+            ))
+
+        tree.traverse(traverse_fn)
+
+        return result
+
+    def get_ordered_scaffolds(self) -> List[Tuple[Optional[ScaffoldDescriptor], int]]:
+        tree = self.scaffold_tree
+        result: List[Tuple[Optional[ScaffoldDescriptor], int]] = []
+
+        assert (
+            tree is not None
+        ), "No scaffold tree is present?"
+
+        def traverse_fn(n: ScaffoldTree.Node) -> None:
+            nonlocal result
+            result.append((
+                n.scaffold_descriptor,
+                int(n.length_bp)
+            ))
+
+        tree.traverse(traverse_fn)
+
+        return result
+
+    def get_assembly_info(self) -> Tuple[List[Tuple[ContigDescriptor, ContigDirection]], List[Tuple[Optional[ScaffoldDescriptor], int]]]:
+        contig_tree = self.contig_tree
+        scaffold_tree = self.scaffold_tree
+
+        assert (
+            contig_tree is not None
+        ), "Contig tree is None?"
+        assert (
+            scaffold_tree is not None
+        ), "Scaffold tree is None?"
+
+        with contig_tree.root_lock.gen_rlock(), scaffold_tree.root_lock.gen_rlock():
+            return self.get_ordered_contigs(), self.get_ordered_scaffolds()
                 
             
             
