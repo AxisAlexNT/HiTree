@@ -170,6 +170,9 @@ class ScaffoldDescriptor(RecordClass):
         scaffold_name: str,
         spacer_length: int = 1000
     ) -> 'ScaffoldDescriptor':
+        assert (
+            spacer_length is not None
+        ), "Setting spacer_length to None??"
         return ScaffoldDescriptor(
             scaffold_id=scaffold_id,
             scaffold_name=scaffold_name,

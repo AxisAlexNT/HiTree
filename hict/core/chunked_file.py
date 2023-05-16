@@ -1023,25 +1023,29 @@ class ChunkedFile(object):
             bp_position: int = 0
             scaffold_left_bp: int = 0
             
-            for ctg, _ in contigs_and_dirs:
-                while bp_position >= scaffold_left_bp + scaffolds_and_lengths[scaffold_index][1]:
+            for ctg, ctg_dir in contigs_and_dirs:
+                while (scaffold_index < len(scaffolds_and_lengths)) and (bp_position >= scaffold_left_bp + scaffolds_and_lengths[scaffold_index][1]):
+                    scaffold_left_bp += scaffolds_and_lengths[scaffold_index][1]
                     scaffold_index += 1
-                               
-                opt_sd = scaffolds_and_lengths[scaffold_index][0]
+                
+                if scaffold_index < len(scaffolds_and_lengths):
+                    opt_sd = scaffolds_and_lengths[scaffold_index][0]
+                else:
+                    opt_sd = None
                 
                 if opt_sd is None:
                     ordered_finalization_records.append((
                         None,
-                        [ctg]
+                        [(ctg, ctg_dir)]
                     ))
                 else:
                     last_scaffold_desc: Optional[ScaffoldDescriptor] = None
                     if len(ordered_finalization_records) > 0:
                         last_scaffold_desc = ordered_finalization_records[-1][0]
                     if last_scaffold_desc is not None and last_scaffold_desc.scaffold_id == opt_sd.scaffold_id and last_scaffold_desc.scaffold_name == opt_sd.scaffold_name:
-                        ordered_finalization_records[-1][1].append(ctg)
+                        ordered_finalization_records[-1][1].append((ctg, ctg_dir))
                     else:
-                        ordered_finalization_records.append((opt_sd, [ctg]))
+                        ordered_finalization_records.append((opt_sd, [(ctg, ctg_dir)]))
                  
                 bp_position += ctg.contig_length_at_resolution[0]
 

@@ -406,7 +406,7 @@ class ScaffoldTree(object):
             if bp >= self.root.subtree_length_bp or bp < 0:
                 return None
             (le, r) = ScaffoldTree.Node.split_bp(
-                self.root, bp, include_equal_to_the_left=True)
+                self.root, 1+bp, include_equal_to_the_left=True)
             assert (
                 le is not None
             ), "Scaffold Tree root was None?"
@@ -445,7 +445,7 @@ class ScaffoldTree(object):
                 new_assembly_length_bp == old_assembly_length_bp
             ), "Assembly length changed after unscaffolding a region?"
 
-    def rescaffold(self, start_bp: np.int64, end_bp: np.int64, spacer_length: Optional[int] = 1000) -> ScaffoldDescriptor:
+    def rescaffold(self, start_bp: np.int64, end_bp: np.int64, spacer_length: int = 1000) -> ScaffoldDescriptor:
         if start_bp > end_bp:
             start_bp, end_bp = end_bp, start_bp
 
