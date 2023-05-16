@@ -1316,8 +1316,10 @@ class ChunkedFile(object):
                 old_join_atu = source_atus[index_of_atu_where_split_occurs]
                 atus_l = list(source_atus[:index_of_atu_where_split_occurs])
                 atus_r = list(source_atus[-1+1+index_of_atu_where_split_occurs:])
-                atus_l_length_bins = source_atus_prefix_sum[index_of_atu_where_split_occurs]
-                atus_r_length_bins = source_atus_prefix_sum[-1] - source_atus_prefix_sum[1+index_of_atu_where_split_occurs]
+                atus_l_length_bins = source_atus_prefix_sum[index_of_atu_where_split_occurs-1] if index_of_atu_where_split_occurs > 0 else 0
+                
+                #atus_r_length_bins = source_atus_prefix_sum[-1] - atus_l_length_bins
+                
                 delta_l = delta_from_start_at_resolution - atus_l_length_bins
                 if delta_l > 0:
                     atus_l.append(
@@ -1333,21 +1335,30 @@ class ChunkedFile(object):
                     atus_l_length_bins + delta_l == new_contig_length_at_resolution[0][resolution]
                 ), "Unexpected length of left part"
                 
-                delta_r_positive = new_contig_length_at_resolution[1][resolution] - atus_r_length_bins
+                #delta_r_positive = new_contig_length_at_resolution[1][resolution] - atus_r_length_bins
                 
-                if delta_r_positive > 0:
+                new_r_atu_start = (old_join_atu.start_index_in_stripe_incl + delta_l + (0 if resolution != min_resolution else 1)) if old_join_atu.direction == ATUDirection.FORWARD else (old_join_atu.start_index_in_stripe_incl)
+                new_r_atu_end = (old_join_atu.end_index_in_stripe_excl) if old_join_atu.direction == ATUDirection.FORWARD else (old_join_atu.end_index_in_stripe_excl - delta_l + (0 if resolution != min_resolution else 1))
+                
+                if new_r_atu_end - new_r_atu_start > 0:
+                    # atus_r[0] = ATUDescriptor.make_atu_descriptor(
+                    #         old_join_atu.stripe_descriptor,
+                    #         (old_join_atu.start_index_in_stripe_incl + delta_r_positive) if old_join_atu.direction == ATUDirection.FORWARD else old_join_atu.start_index_in_stripe_incl,
+                    #         old_join_atu.end_index_in_stripe_excl if old_join_atu.direction == ATUDirection.FORWARD else (old_join_atu.end_index_in_stripe_excl - delta_r_positive),
+                    #         old_join_atu.direction     
+                    #     )
                     atus_r[0] = ATUDescriptor.make_atu_descriptor(
                             old_join_atu.stripe_descriptor,
-                            (old_join_atu.start_index_in_stripe_incl + delta_r_positive) if old_join_atu.direction == ATUDirection.FORWARD else old_join_atu.start_index_in_stripe_incl,
-                            old_join_atu.end_index_in_stripe_excl if old_join_atu.direction == ATUDirection.FORWARD else (old_join_atu.end_index_in_stripe_excl - delta_r_positive),
-                            old_join_atu.direction     
+                            new_r_atu_start,
+                            new_r_atu_end,
+                            old_join_atu.direction        
                         )
                 else:
                     atus_r = atus_r[1:]
                     
                     
                 assert (
-                    atus_r_length_bins + delta_r_positive == new_contig_length_at_resolution[1][resolution]
+                    sum(map(lambda atu: atu.end_index_in_stripe_excl - atu.start_index_in_stripe_incl, atus_r)) == new_contig_length_at_resolution[1][resolution]
                 ), "Unexpected length of right part"
 
                 
