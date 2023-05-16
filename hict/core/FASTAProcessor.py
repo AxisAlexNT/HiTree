@@ -54,7 +54,7 @@ class FASTAProcessor(object):
         out_record: bytes = f">{out_fasta_header}\n{out_sequence}".encode(
             encoding='utf-8')
         file_like.write(out_record)
-        
+
     def get_cropped_dna_string_for_single_contig(
         self,
         ctg: ContigDescriptor,
@@ -63,7 +63,8 @@ class FASTAProcessor(object):
         offset_before_end: int = 0
     ) -> str:
         base_dna_seq = self.records[ctg.contig_name_in_source_fasta]
-        contig_dna_seq = base_dna_seq[ctg.offset_inside_fasta_contig:(ctg.offset_inside_fasta_contig+ctg.contig_length_at_resolution[0])]
+        contig_dna_seq = base_dna_seq[ctg.offset_inside_fasta_contig:(
+            ctg.offset_inside_fasta_contig+ctg.contig_length_at_resolution[0])]
         if ctg_dir == ContigDirection.FORWARD:
             return str(contig_dna_seq[offset_from_start: (-offset_before_end if (offset_before_end > 0) else None)])
         elif ctg_dir == ContigDirection.REVERSED:
@@ -113,10 +114,8 @@ class FASTAProcessor(object):
             self,
             contig_descriptor: ContigDescriptor,
             contig_direction: ContigDirection,
-            contig_name: Optional[str] = None
     ) -> str:
-        if contig_name is None:
-            contig_name = contig_descriptor.contig_name
+        contig_name = contig_descriptor.contig_name
         out_str = ''
         out_str += f'>{contig_name}\n'
         out_str += self.get_cropped_dna_string_for_single_contig(
@@ -129,44 +128,31 @@ class FASTAProcessor(object):
     def finalize_fasta_for_assembly(
             self,
             file_like,
-            ordered_finalization_records: List[Tuple[FinalizeRecordType, List[Tuple[ContigDescriptor, ContigDirection]]]],
-            scaffold_id_to_scaffold_descriptor: Dict[np.int64, ScaffoldDescriptor],
-            contig_id_to_contig_name: Optional[List[str]] = None
+            ordered_finalization_records: List[Tuple[Optional[ScaffoldDescriptor], List[Tuple[ContigDescriptor, ContigDirection]]]],
     ):
-        for record_order, finalization_record in enumerate(ordered_finalization_records):
-            record_type = finalization_record[0]
-            if record_type == FinalizeRecordType.CONTIG_NOT_IN_SCAFFOLD:
+        for record_order, (opt_scaffold, ctgs) in enumerate(ordered_finalization_records):
+            if opt_scaffold is None:
                 assert (
-                    len(finalization_record[1])
+                    len(ctgs) == 1
                 ), "Finalization record for single contig not in scaffold must contain only one contig descriptor"
-                contig_descriptor, contig_direction = finalization_record[1][0]
+                contig_descriptor, contig_direction = ctgs[0]
                 contig_record_str: str = self.get_fasta_record_for_single_contig_not_in_scaffold(
                     contig_descriptor,
                     contig_direction,
-                    contig_id_to_contig_name[contig_descriptor.contig_id] if contig_id_to_contig_name is not None else None,
                 )
                 contig_record_bytes: bytes = contig_record_str.encode(
-                    encoding='utf-8')
-                #print(bytes(contig_record_bytes), end=None, file=file_like)
+                    encoding='utf-8'
+                )
                 file_like.write(contig_record_bytes)
-            elif record_type == FinalizeRecordType.SCAFFOLD:
-                raise Exception("Not yet implemented") #TODO: fix new scaffold output
+            else:
                 assert (
-                    len(finalization_record[1]) > 0
+                    len(ctgs) > 0
                 ), "Finalization record for scaffold must contain at least one contig"
-                scaffold_id: Optional[np.int64] = finalization_record[1][0][0].scaffold_id
-                assert scaffold_id is not None, "Finalization record for scaffold must have non-None scaffold_id"
-                scaffold_descriptor: ScaffoldDescriptor = scaffold_id_to_scaffold_descriptor[
-                    scaffold_id]
                 scaffold_record_str: str = self.get_fasta_record_for_scaffold(
-                    scaffold_descriptor,
-                    finalization_record[1],
+                    opt_scaffold,
+                    ctgs,
                 )
                 scaffold_record_bytes: bytes = scaffold_record_str.encode(
-                    encoding='utf-8')
-                #print(scaffold_record_bytes, end=None, file=file_like)
-                file_like.write(scaffold_record_bytes)
-            else:
-                raise Exception(
-                    f"Unknown finalization record type: {record_type.name}={record_type.value} at position {record_order}"
+                    encoding='utf-8'
                 )
+                file_like.write(scaffold_record_bytes)

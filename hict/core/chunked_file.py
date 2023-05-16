@@ -9,12 +9,14 @@ import multiprocessing.managers
 import copy
 
 import h5py
+from matplotlib.pyplot import sca
 import numpy as np
 # from cachetools import LRUCache, cachedmethod
 # from cachetools.keys import hashkey
 from readerwriterlock import rwlock
 import scipy
 from scipy.sparse import coo_array, csr_array, csc_array
+from hict.api.ContactMatrixFacet import ContactMatrixFacet
 from hict.core.scaffold_tree import ScaffoldTree
 
 from hict.core.AGPProcessor import *
@@ -1012,53 +1014,42 @@ class ChunkedFile(object):
         with self.fasta_file_lock.gen_rlock():
             if self.fasta_processor is None:
                 raise Exception("FASTA File is not linked")
+            
+            contigs_and_dirs, scaffolds_and_lengths = ContactMatrixFacet.get_assembly_info(self)
 
-            ordered_contig_descriptors: List[ContigDescriptor] = []
-
-            def traverse_fn(node: ContigTree.Node) -> None:
-                ordered_contig_descriptors.append(node.contig_descriptor)
-
-            self.contig_tree.traverse(traverse_fn)
-
-            ordered_finalization_records: List[Tuple[FinalizeRecordType, List[ContigDescriptor]]] = [
+            ordered_finalization_records: List[Tuple[Optional[ScaffoldDescriptor], List[Tuple[ContigDescriptor, ContigDirection]]]] = [
             ]
-
-            for contig_descriptor in ordered_contig_descriptors:
-                if contig_descriptor.scaffold_id is None:
+            
+            scaffold_index: int = 0
+            bp_position: int = 0
+            scaffold_left_bp: int = 0
+            
+            for ctg, _ in contigs_and_dirs:
+                while bp_position >= scaffold_left_bp + scaffolds_and_lengths[scaffold_index][1]:
+                    scaffold_index += 1
+                               
+                opt_sd = scaffolds_and_lengths[scaffold_index][0]
+                
+                if opt_sd is None:
                     ordered_finalization_records.append((
-                        FinalizeRecordType.CONTIG_NOT_IN_SCAFFOLD,
-                        [contig_descriptor]
+                        None,
+                        [ctg]
                     ))
                 else:
-                    last_scaffold_id: Optional[np.int64] = None
+                    last_scaffold_desc: Optional[ScaffoldDescriptor] = None
                     if len(ordered_finalization_records) > 0:
-                        last_scaffold_id = ordered_finalization_records[-1][1][-1].scaffold_id
-                    if contig_descriptor.scaffold_id is not None and contig_descriptor.scaffold_id == last_scaffold_id:
-                        assert (
-                            ordered_finalization_records[-1][0] == FinalizeRecordType.SCAFFOLD
-                        ), "Last contig descriptor has a scaffold_id but marked as out-of-scaffold?"
-                        ordered_finalization_records[-1][1].append(
-                            contig_descriptor)
+                        last_scaffold_desc = ordered_finalization_records[-1][0]
+                    if last_scaffold_desc is not None and last_scaffold_desc.scaffold_id == opt_sd.scaffold_id and last_scaffold_desc.scaffold_name == opt_sd.scaffold_name:
+                        ordered_finalization_records[-1][1].append(ctg)
                     else:
-                        ordered_finalization_records.append((
-                            FinalizeRecordType.SCAFFOLD,
-                            [contig_descriptor]
-                        ))
+                        ordered_finalization_records.append((opt_sd, [ctg]))
+                 
+                bp_position += ctg.contig_length_at_resolution[0]
 
-            # with self.scaffold_tree.root_lock.gen_rlock():
-            scaffold_table: Dict[np.int64, ScaffoldDescriptor] = dict()
-
-            def traverse_fn(n: ScaffoldTree.Node) -> None:
-                if n.scaffold_descriptor is not None:
-                    scaffold_table[n.scaffold_descriptor.scaffold_id] = n.scaffold_descriptor
-
-            self.scaffold_tree.traverse(traverse_fn)
 
             self.fasta_processor.finalize_fasta_for_assembly(
                 writable_stream,
                 ordered_finalization_records,
-                scaffold_table,  # self.scaffold_holder.scaffold_table,
-                self.contig_names
             )
 
     def load_assembly_from_agp(self, agp_filepath: Path) -> None:
