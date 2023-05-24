@@ -52,7 +52,7 @@ class AGPparser(object):
                 scaf_name, ctg_name, ctg_dir_str, ctg_len = self.parseAGPLine(line)
                 if scaf_name == 'N_spacer':
                     continue
-                if ctg_dir not in ("+", "-"):
+                if ctg_dir_str not in ("+", "-"):
                     raise Exception(
                         f'unexpected symbol in agp direction column: {ctg_dir}')
                 ctg_dir = ContigDirection(
