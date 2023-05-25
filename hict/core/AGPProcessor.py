@@ -52,7 +52,7 @@ class AGPparser(object):
                 scaf_name, ctg_name, ctg_dir_str, ctg_len = self.parseAGPLine(line)
                 if scaf_name == 'N_spacer':
                     continue
-                if ctg_dir not in ("+", "-"):
+                if ctg_dir_str not in ("+", "-"):
                     raise Exception(
                         f'unexpected symbol in agp direction column: {ctg_dir}')
                 ctg_dir = ContigDirection(
@@ -116,7 +116,7 @@ class AGPExporter(object):
                 position_in_scaffold_list += 1
 
             current_scaffold: str
-            if scaffold_list[position_in_scaffold_list][1].start_bp <= position_bp < scaffold_list[position_in_scaffold_list][1].end_bp:
+            if position_in_scaffold_list < len(scaffold_list) and scaffold_list[position_in_scaffold_list][1].start_bp <= position_bp < scaffold_list[position_in_scaffold_list][1].end_bp:
                 current_scaffold = scaffold_list[position_in_scaffold_list][0].scaffold_name
             else:
                 current_scaffold = f"unscaffolded_{contig.contig_name}"

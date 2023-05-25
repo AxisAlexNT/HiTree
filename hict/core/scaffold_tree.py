@@ -211,7 +211,8 @@ class ScaffoldTree(object):
 
         @staticmethod
         def _optimize_empty_space(
-            t: Optional['ScaffoldTree.Node']
+            t: Optional['ScaffoldTree.Node'],
+            recursive: bool = False
         ) -> Optional['ScaffoldTree.Node']:
             if t is None or t.scaffold_descriptor is not None:
                 return t
@@ -219,7 +220,13 @@ class ScaffoldTree(object):
             old_subtree_length = t.subtree_length_bp
 
             if t.left is not None and t.left.scaffold_descriptor is None:
-                son = t.left
+                if recursive:
+                    son = ScaffoldTree.Node._optimize_empty_space(t.left, recursive)
+                    assert (
+                        son is not None
+                    ), "After space-optimization left son became None??"
+                else:
+                    son = t.left
                 if son.right is None:
                     new_t = t.clone()
                     new_t.length_bp += son.length_bp
@@ -227,7 +234,13 @@ class ScaffoldTree(object):
                     t = new_t
 
             if t.right is not None and t.right.scaffold_descriptor is None:
-                son = t.right
+                if recursive:
+                    son = ScaffoldTree.Node._optimize_empty_space(t.right, recursive)
+                    assert (
+                        son is not None
+                    ), "After space-optimization rught son became None??"                
+                else:
+                    son = t.right
                 if son.left is None:
                     new_t = t.clone()
                     new_t.length_bp += son.length_bp
@@ -254,18 +267,18 @@ class ScaffoldTree(object):
             from_bp = max(np.int64(0), from_bp)
             le, gr = ScaffoldTree.Node.split_bp(
                 t, to_bp, include_equal_to_the_left=True)
-            le_size = (le.subtree_length_bp if le is not None else np.int64(0))
+            # le_size = (le.subtree_length_bp if le is not None else np.int64(0))
             # assert (
             #     le_size == to_bp
             # ), f"Less-or-equal part does not end where desired {le_size} != {to_bp}??"
             ls, sg = ScaffoldTree.Node.split_bp(
                 le, from_bp, include_equal_to_the_left=True)
-            less_size = (
-                ls.subtree_length_bp if ls is not None else np.int64(0))
-            segment_size = (
-                sg.subtree_length_bp if sg is not None else np.int64(0))
-            greater_size = (
-                gr.subtree_length_bp if gr is not None else np.int64(0))
+            # less_size = (
+            #     ls.subtree_length_bp if ls is not None else np.int64(0))
+            # segment_size = (
+            #     sg.subtree_length_bp if sg is not None else np.int64(0))
+            # greater_size = (
+            #     gr.subtree_length_bp if gr is not None else np.int64(0))
 
             # assert (
             #     less_size == from_bp
@@ -393,7 +406,7 @@ class ScaffoldTree(object):
             if bp >= self.root.subtree_length_bp or bp < 0:
                 return None
             (le, r) = ScaffoldTree.Node.split_bp(
-                self.root, bp, include_equal_to_the_left=True)
+                self.root, 1+bp, include_equal_to_the_left=True)
             assert (
                 le is not None
             ), "Scaffold Tree root was None?"
@@ -432,7 +445,7 @@ class ScaffoldTree(object):
                 new_assembly_length_bp == old_assembly_length_bp
             ), "Assembly length changed after unscaffolding a region?"
 
-    def rescaffold(self, start_bp: np.int64, end_bp: np.int64, spacer_length: Optional[int] = 1000) -> ScaffoldDescriptor:
+    def rescaffold(self, start_bp: np.int64, end_bp: np.int64, spacer_length: int = 1000) -> ScaffoldDescriptor:
         if start_bp > end_bp:
             start_bp, end_bp = end_bp, start_bp
 
@@ -552,3 +565,52 @@ class ScaffoldTree(object):
         self.traverse(traverse_fn)
 
         return descriptors
+    
+    def remove_segment_from_assembly(
+        self,
+        start_bp_incl: np.int64,
+        end_bp_excl: np.int64,
+    ) -> None:
+        with self.root_lock.gen_wlock():
+            es = ScaffoldTree.Node.expose(self.root, start_bp_incl, end_bp_excl)
+            assert (
+                es.segment is not None
+            ), "Requested segment is not covered by scaffold tree??"
+            
+            segment = ScaffoldTree.Node._optimize_empty_space(es.segment, recursive=True)
+            
+            assert (
+                segment is not None
+            ), "After empty space optimization, node became None?"
+            
+            def check_only_one_scaffold() -> bool:
+                scaffold_descriptor_count: int = 0
+                
+                def traverse_fn(node: ScaffoldTree.Node) -> None:
+                    nonlocal scaffold_descriptor_count
+                    if node.scaffold_descriptor is not None:
+                        scaffold_descriptor_count += 1
+                
+                ScaffoldTree.Node.traverse(segment, traverse_fn)
+                
+                assert (
+                    scaffold_descriptor_count <= 1
+                ), "At most one scaffold could cover the splicing area"
+                return True
+                
+            assert (
+                check_only_one_scaffold()
+            ), "At most one scaffold could cover the splicing area"
+            
+            #left_length = es.less.length_bp if es.less is not None else 0
+            
+            #covered_length: int = 0
+            assert (
+                segment.left is None and segment.right is None
+            ), "Exposed more than one nodes??"
+            
+            new_segment = segment.clone()
+            new_segment.length_bp -= (end_bp_excl - start_bp_incl)
+            new_segment.subtree_length_bp = new_segment.length_bp
+            
+            self.commit_root(ScaffoldTree.ExposedSegment(es.less, new_segment, es.greater))

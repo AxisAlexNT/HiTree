@@ -170,6 +170,9 @@ class ScaffoldDescriptor(RecordClass):
         scaffold_name: str,
         spacer_length: int = 1000
     ) -> 'ScaffoldDescriptor':
+        assert (
+            spacer_length is not None
+        ), "Setting spacer_length to None??"
         return ScaffoldDescriptor(
             scaffold_id=scaffold_id,
             scaffold_name=scaffold_name,
@@ -189,6 +192,8 @@ class ContigDescriptor(RecordClass):
     # This implementation is not useful in case contig split occurrs:
     atus: Dict[np.int64, List[ATUDescriptor]]
     atu_prefix_sum_length_bins: Dict[np.int64, np.ndarray]
+    contig_name_in_source_fasta: str
+    offset_inside_fasta_contig: np.int64
 
     @staticmethod
     def make_contig_descriptor(
@@ -199,7 +204,8 @@ class ContigDescriptor(RecordClass):
             contig_length_at_resolution: Dict[np.int64, np.int64],
             contig_presence_in_resolution: Dict[np.int64, ContigHideType],
             atus: Dict[np.int64, List[ATUDescriptor]],
-            # scaffold_id: Optional[np.int64] = None
+            contig_name_in_source_fasta: Optional[str] = None,
+            offset_inside_fasta_contig: Optional[np.int64] = None
     ) -> 'ContigDescriptor':
         assert (
             0 not in contig_length_at_resolution.keys()
@@ -224,23 +230,27 @@ class ContigDescriptor(RecordClass):
                         )
                     ), dtype=np.int64)
                 for resolution in contig_length_at_resolution.keys()
-            }
+            },
+            contig_name_in_source_fasta=contig_name if contig_name_in_source_fasta is None else contig_name_in_source_fasta,
+            offset_inside_fasta_contig = np.int64(0) if offset_inside_fasta_contig is None else offset_inside_fasta_contig
         )
 
     def __eq__(self, o: object) -> bool:
         if isinstance(o, ContigDescriptor):
             return (
                 self.contig_id,
-                # self.direction,
                 self.contig_length_at_resolution,
                 self.atus,
-                self.atu_prefix_sum_length_bins
+                self.atu_prefix_sum_length_bins,
+                self.contig_name_in_source_fasta,
+                self.offset_inside_fasta_contig
             ) == (
                 o.contig_id,
-                # o.direction,
                 o.contig_length_at_resolution,
                 o.atus,
-                o.atu_prefix_sum_length_bins
+                o.atu_prefix_sum_length_bins,
+                o.contig_name_in_source_fasta,
+                o.offset_inside_fasta_contig
             )
         return False
 

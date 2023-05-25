@@ -9,6 +9,7 @@ import multiprocessing.managers
 import copy
 
 import h5py
+from matplotlib.pyplot import sca
 import numpy as np
 # from cachetools import LRUCache, cachedmethod
 # from cachetools.keys import hashkey
@@ -93,7 +94,8 @@ class ChunkedFile(object):
         self.opened_hdf_file: h5py.File = h5py.File(
             self.filepath,
             mode='r',
-            swmr=True
+            swmr=True,
+            libver='latest'
         )        
         contig_id_to_length_by_resolution: Dict[np.int64,
                                                 Dict[np.int64, np.int64]] = dict()
@@ -218,61 +220,6 @@ class ChunkedFile(object):
             # self.restore_scaffolds(f)
 
         self.state = ChunkedFile.FileState.OPENED
-
-    def clear_caches(self, saved_blocks: bool = False):
-        return
-        # if saved_blocks:
-        #     if self.load_saved_dense_block.cache_lock is not None:
-        #         with self.load_saved_dense_block.cache_lock(self):
-        #             self.load_saved_dense_block.cache(self).clear()
-        # if self.get_block_intersection_as_dense_matrix.cache_lock is not None:
-        #     with self.get_block_intersection_as_dense_matrix.cache_lock(self):
-        #         self.get_block_intersection_as_dense_matrix.cache(self).clear()
-
-    # def restore_scaffolds(self, f: h5py.File):
-    #     if 'scaffold_info' not in f['/'].keys():
-    #         # No scaffolds are present
-    #         return
-
-    #     scaffold_info_group: h5py.Group = f['/scaffold_info']
-    #     scaffold_name_ds: h5py.Dataset = scaffold_info_group['scaffold_name']
-
-    #     scaffold_start_ds: h5py.Dataset = scaffold_info_group['scaffold_start_bp']
-    #     scaffold_end_ds: h5py.Dataset = scaffold_info_group['scaffold_end_bp']
-
-    #     scaffold_direction_ds: h5py.Dataset = scaffold_info_group['scaffold_direction']
-    #     scaffold_spacer_ds: h5py.Dataset = scaffold_info_group['scaffold_spacer']
-
-    #     for scaffold_id, (
-    #             scaffold_name,
-    #             scaffold_start_contig_id,
-    #             scaffold_end_contig_id,
-    #             scaffold_direction,
-    #             scaffold_spacer
-    #     ) in enumerate(zip(
-    #         scaffold_name_ds,
-    #         scaffold_start_ds,
-    #         scaffold_end_ds,
-    #         scaffold_direction_ds,
-    #         scaffold_spacer_ds,
-    #     )):
-    #         assert (
-    #             (scaffold_end_contig_id == -1) if (scaffold_start_contig_id == -
-    #                                                1) else (scaffold_end_contig_id != -1)
-    #         ), "Scaffold borders are existent/nonexistent separately??"
-    #         scaffold_descriptor: ScaffoldDescriptor = ScaffoldDescriptor(
-    #             scaffold_id=scaffold_id,
-    #             scaffold_name=bytes(scaffold_name).decode('utf-8'),
-    #             scaffold_borders=(
-    #                 ScaffoldBorders(
-    #                     scaffold_start_contig_id,
-    #                     scaffold_end_contig_id
-    #                 ) if scaffold_start_contig_id != -1 else None
-    #             ),
-    #             scaffold_direction=ScaffoldDirection(scaffold_direction),
-    #             spacer_length=scaffold_spacer,
-    #         )
-    #         # self.scaffold_holder.insert_saved_scaffold__(scaffold_descriptor)
 
     def read_atl(
         self,
@@ -914,166 +861,6 @@ class ChunkedFile(object):
 
         return result_atus
 
-    # def reverse_selection_range(self, queried_start_contig_id: np.int64, queried_end_contig_id: np.int64) -> None:
-    #     assert self.state == ChunkedFile.FileState.OPENED, "Operation requires file to be opened"
-
-    #     queried_start_contig_order: np.int64 = self.contig_tree.get_contig_order(
-    #         queried_start_contig_id)[1]
-    #     queried_end_contig_order: np.int64 = self.contig_tree.get_contig_order(
-    #         queried_end_contig_id)[1]
-
-    #     if queried_end_contig_order < queried_start_contig_order:
-    #         (queried_start_contig_id, queried_start_contig_order, queried_end_contig_id, queried_end_contig_order) = (
-    #             queried_end_contig_id, queried_end_contig_order, queried_start_contig_id, queried_start_contig_order)
-
-    #     queried_start_node: ContigTree.Node = self.contig_tree.get_updated_contig_node_by_contig_id(
-    #         queried_start_contig_id)
-    #     queried_end_node: ContigTree.Node = self.contig_tree.get_updated_contig_node_by_contig_id(
-    #         queried_end_contig_id)
-
-    #     queried_start_contig_scaffold_id = queried_start_node.contig_descriptor.scaffold_id
-    #     queried_end_contig_scaffold_id = queried_end_node.contig_descriptor.scaffold_id
-
-    #     start_contig_id: np.int64 = (
-    #         queried_start_contig_id
-    #         if queried_start_contig_scaffold_id is None
-    #         else self.scaffold_holder.get_scaffold_by_id(
-    #             queried_start_contig_scaffold_id).scaffold_borders.start_contig_id
-    #     )
-    #     end_contig_id: np.int64 = (
-    #         queried_end_contig_id
-    #         if queried_end_contig_scaffold_id is None
-    #         else self.scaffold_holder.get_scaffold_by_id(queried_end_contig_scaffold_id).scaffold_borders.end_contig_id
-    #     )
-
-    #     (
-    #         _,
-    #         borders_bins_start,
-    #         _,
-    #         start_index
-    #     ) = self.contig_tree.get_contig_location(start_contig_id)
-    #     (
-    #         _,
-    #         borders_bins_end,
-    #         _,
-    #         end_index
-    #     ) = self.contig_tree.get_contig_location(end_contig_id)
-
-    #     if end_index < start_index:
-    #         raise Exception(
-    #             f"After selection was extended, its end contig with ID={end_contig_id} and order {end_index} precedes start contig with ID={start_contig_id} and order={start_index}")
-
-    #     ct_exposed_segment = self.contig_tree.expose_segment_by_count(
-    #         start_index, end_index)
-    #     scaffold_ids_in_subtree: Set[np.int64] = set()
-    #     if ct_exposed_segment.segment is not None:
-    #         ct_exposed_segment.segment.reverse_subtree()
-
-    #         def traverse_fn(n: ContigTree.Node):
-    #             if n.contig_descriptor.scaffold_id is not None:
-    #                 scaffold_ids_in_subtree.add(
-    #                     n.contig_descriptor.scaffold_id)
-
-    #         ContigTree.traverse_node(ct_exposed_segment.segment, traverse_fn)
-    #     self.contig_tree.commit_exposed_segment(ct_exposed_segment)
-
-    #     for scaffold_id in scaffold_ids_in_subtree:
-    #         self.scaffold_holder.reverse_scaffold(scaffold_id)
-
-    #     for resolution in self.resolutions:
-    #         mt = self.matrix_trees[resolution]
-    #         (start_bins, end_bins) = (
-    #             borders_bins_start[resolution][0], borders_bins_end[resolution][1])
-    #         mt.reverse_direction_in_bins(1 + start_bins, end_bins)
-    #     self.clear_caches()
-
-    # def move_selection_range(self, queried_start_contig_id: np.int64, queried_end_contig_id: np.int64,
-    #                          target_start_order: np.int64) -> None:
-    #     assert self.state == ChunkedFile.FileState.OPENED, "Operation requires file to be opened"
-
-    #     queried_start_contig_order: np.int64 = self.contig_tree.get_contig_order(
-    #         queried_start_contig_id)[1]
-    #     queried_end_contig_order: np.int64 = self.contig_tree.get_contig_order(
-    #         queried_end_contig_id)[1]
-
-    #     if queried_end_contig_order < queried_start_contig_order:
-    #         (queried_start_contig_id, queried_start_contig_order, queried_end_contig_id, queried_end_contig_order) = (
-    #             queried_end_contig_id, queried_end_contig_order, queried_start_contig_id, queried_start_contig_order)
-
-    #     queried_start_node: ContigTree.Node = self.contig_tree.get_updated_contig_node_by_contig_id(
-    #         queried_start_contig_id)
-    #     queried_end_node: ContigTree.Node = self.contig_tree.get_updated_contig_node_by_contig_id(
-    #         queried_end_contig_id)
-
-    #     queried_start_contig_scaffold_id = queried_start_node.contig_descriptor.scaffold_id
-    #     queried_end_contig_scaffold_id = queried_end_node.contig_descriptor.scaffold_id
-
-    #     start_contig_id: np.int64 = (
-    #         queried_start_contig_id
-    #         if queried_start_contig_scaffold_id is None
-    #         else self.scaffold_holder.get_scaffold_by_id(
-    #             queried_start_contig_scaffold_id).scaffold_borders.start_contig_id
-    #     )
-    #     end_contig_id: np.int64 = (
-    #         queried_end_contig_id
-    #         if queried_end_contig_scaffold_id is None
-    #         else self.scaffold_holder.get_scaffold_by_id(queried_end_contig_scaffold_id).scaffold_borders.end_contig_id
-    #     )
-
-    #     (
-    #         _,
-    #         borders_bins_start,
-    #         _,
-    #         start_index
-    #     ) = self.contig_tree.get_contig_location(start_contig_id)
-    #     (
-    #         _,
-    #         borders_bins_end,
-    #         _,
-    #         end_index
-    #     ) = self.contig_tree.get_contig_location(end_contig_id)
-
-    #     if end_index < start_index:
-    #         raise Exception(
-    #             f"After selection was extended, its end contig with ID={end_contig_id} and order {end_index} precedes start contig with ID={start_contig_id} and order={start_index}")
-
-    #     (previous_contig_scaffold,
-    #      target_contig_scaffold,
-    #      next_contig_scaffold,
-    #      scaffold_starts_at_target,
-    #      internal_scaffold_contig,
-    #      scaffold_ends_at_target) = self.check_scaffold_borders_at_position(target_start_order)
-
-    #     target_scaffold_id: Optional[np.int64] = None
-
-    #     if internal_scaffold_contig:
-    #         target_scaffold_id = target_contig_scaffold.scaffold_id
-
-    #     ct_exposed_segment = self.contig_tree.expose_segment_by_count(
-    #         start_index, end_index)
-    #     if ct_exposed_segment.segment is not None:
-    #         if target_scaffold_id is not None:
-    #             ct_exposed_segment.segment.contig_descriptor.scaffold_id = target_scaffold_id
-    #             ct_exposed_segment.segment.needs_updating_scaffold_id_in_subtree = True
-    #     tmp_tree: Optional[ContigTree.Node] = self.contig_tree.merge_nodes(
-    #         ct_exposed_segment.less, ct_exposed_segment.greater)
-    #     l, r = self.contig_tree.split_node_by_count(
-    #         tmp_tree, target_start_order)
-    #     leftLength: Dict[np.int64, np.int64]
-    #     if l is not None:
-    #         leftLength = l.get_sizes()[0]
-    #     else:
-    #         leftLength = dict().fromkeys(self.resolutions, 0)
-    #     self.contig_tree.commit_exposed_segment(
-    #         ContigTree.ExposedSegment(l, ct_exposed_segment.segment, r))
-
-    #     for resolution in self.resolutions:
-    #         mt = self.matrix_trees[resolution]
-    #         (start_bins, end_bins) = (
-    #             borders_bins_start[resolution][0], borders_bins_end[resolution][1])
-    #         mt.move_stripes(1+start_bins, end_bins, leftLength[resolution])
-    #     self.clear_caches()
-
     def reverse_selection_range_bp(self, queried_start_bp: np.int64, queried_end_bp: np.int64) -> None:
         assert (
             self.state == ChunkedFile.FileState.OPENED and self.contig_tree is not None and self.scaffold_tree is not None
@@ -1109,7 +896,6 @@ class ChunkedFile(object):
                 )
 
                 # self.scaffold_tree.rescaffold(left_bp, right_bp)
-            self.clear_caches()
 
     def move_selection_range_bp(
         self,
@@ -1156,243 +942,9 @@ class ChunkedFile(object):
                     )
                 )
 
-                # self.scaffold_tree.rescaffold(left_bp, right_bp)
                 self.scaffold_tree.move_selection_range(
                     left_bp, right_bp, target_start_bp)
 
-            self.clear_caches()
-
-    # def process_scaffolds_during_move(
-    #         self,
-    #         target_order: np.int64,
-    #         include_into_bordering_scaffold: bool,
-    # ):
-    #     target_scaffold_id: Optional[np.int64] = None
-    #     existing_contig_id: Optional[np.int64] = None
-    #     # Check scaffold_id of existing contig currently with target_order:
-    #     old_es: ContigTree.ExposedSegment = self.contig_tree.expose_segment_by_count(
-    #         target_order, target_order)
-
-    #     # Check left border:
-    #     if old_es.segment is not None:
-    #         existing_contig_descriptor: ContigDescriptor = old_es.segment.contig_descriptor
-    #         target_scaffold_id = existing_contig_descriptor.scaffold_id
-    #         existing_contig_id = existing_contig_descriptor.contig_id
-    #     self.contig_tree.commit_exposed_segment(old_es)
-
-    #     # Check right border if requested to merge into scaffold:
-    #     if target_scaffold_id is None and include_into_bordering_scaffold:
-    #         old_previous_es: ContigTree.ExposedSegment = self.contig_tree.expose_segment_by_count(
-    #             target_order - 1,
-    #             target_order - 1
-    #         )
-    #         if old_previous_es.segment is not None:
-    #             existing_contig_descriptor: ContigDescriptor = old_previous_es.segment.contig_descriptor
-    #             target_scaffold_id = existing_contig_descriptor.scaffold_id
-    #             existing_contig_id = existing_contig_descriptor.contig_id
-    #         self.contig_tree.commit_exposed_segment(old_es)
-
-    #     moving_to_scaffold_border: bool = False
-    #     moving_to_the_left_border: bool = False
-    #     target_scaffold_descriptor: Optional[ScaffoldDescriptor] = None
-    #     if target_scaffold_id is not None:
-    #         target_scaffold_descriptor = self.scaffold_holder.get_scaffold_by_id(
-    #             target_scaffold_id)
-    #         assert existing_contig_id is not None, "Target scaffold id is determined without contig?"
-    #         if existing_contig_id == target_scaffold_descriptor.scaffold_borders.start_contig_id:
-    #             moving_to_the_left_border = True
-    #             moving_to_scaffold_border = True
-    #         elif existing_contig_id == target_scaffold_descriptor.scaffold_borders.end_contig_id:
-    #             moving_to_scaffold_border = True
-    #     return moving_to_scaffold_border, moving_to_the_left_border, target_scaffold_descriptor
-
-    # def check_scaffold_borders_at_position(
-    #         self,
-    #         target_order: np.int64,
-    # ) -> Tuple[
-    #     Optional[ScaffoldDescriptor],
-    #     Optional[ScaffoldDescriptor],
-    #     Optional[ScaffoldDescriptor],
-    #     bool,
-    #     bool,
-    #     bool
-    # ]:
-    #     target_es: ContigTree.ExposedSegment = self.contig_tree.expose_segment_by_count(
-    #         target_order, target_order)
-    #     previous_contig_node: Optional[ContigTree.Node] = ContigTree.get_rightmost(
-    #         target_es.less)
-    #     target_contig_node: Optional[ContigTree.Node] = target_es.segment
-    #     next_contig_node: Optional[ContigTree.Node] = ContigTree.get_leftmost(
-    #         target_es.greater)
-    #     self.contig_tree.commit_exposed_segment(target_es)
-
-    #     def get_node_scaffold_descriptor(node: Optional[ContigTree.Node]) -> Optional[ScaffoldDescriptor]:
-    #         return self.get_scaffold_by_id(node.contig_descriptor.scaffold_id) if node is not None else None
-
-    #     previous_contig_scaffold: Optional[ScaffoldDescriptor] = get_node_scaffold_descriptor(
-    #         previous_contig_node)
-    #     target_contig_scaffold: Optional[ScaffoldDescriptor] = get_node_scaffold_descriptor(
-    #         target_contig_node)
-    #     next_contig_scaffold: Optional[ScaffoldDescriptor] = get_node_scaffold_descriptor(
-    #         next_contig_node)
-
-    #     scaffold_starts_at_target: bool = (
-    #         (target_contig_scaffold is not None)
-    #         and
-    #         (
-    #             (previous_contig_scaffold is None)
-    #             or
-    #             (previous_contig_scaffold.scaffold_id !=
-    #              target_contig_scaffold.scaffold_id)
-    #         )
-    #     )
-
-    #     internal_scaffold_contig: bool = (
-    #         (
-    #             (previous_contig_scaffold is not None)
-    #             and
-    #             (target_contig_scaffold is not None)
-    #             and (next_contig_scaffold is not None)
-    #         )
-    #         and
-    #         (
-    #             previous_contig_scaffold.scaffold_id
-    #             == target_contig_scaffold.scaffold_id
-    #             == next_contig_scaffold.scaffold_id
-    #         )
-    #     )
-    #     scaffold_ends_at_target: bool = (
-    #         (target_contig_scaffold is not None)
-    #         and
-    #         (
-    #             (next_contig_scaffold is None)
-    #             or
-    #             (target_contig_scaffold.scaffold_id !=
-    #              next_contig_scaffold.scaffold_id)
-    #         )
-    #     )
-
-    #     return (
-    #         previous_contig_scaffold,
-    #         target_contig_scaffold,
-    #         next_contig_scaffold,
-    #         scaffold_starts_at_target,
-    #         internal_scaffold_contig,
-    #         scaffold_ends_at_target
-    #     )
-
-    # def get_scaffold_by_id(self, scaffold_id: Optional[np.int64]) -> Optional[ScaffoldDescriptor]:
-    #     return self.scaffold_housekeeping(scaffold_id) if scaffold_id is not None else None
-
-    # def scaffold_housekeeping(self, scaffold_id: np.int64) -> Optional[ScaffoldDescriptor]:
-    #     try:
-    #         scaffold_descriptor: ScaffoldDescriptor = self.scaffold_holder.get_scaffold_by_id(
-    #             scaffold_id)
-    #         scaffold_borders: Optional[ScaffoldBorders] = scaffold_descriptor.scaffold_borders
-    #         if scaffold_borders is not None:
-    #             start_contig_descriptor, _, _, _ = self.get_contig_location(
-    #                 scaffold_borders.start_contig_id)
-    #             end_contig_descriptor, _, _, _ = self.get_contig_location(
-    #                 scaffold_borders.end_contig_id)
-    #             start_scaffold_id: Optional[np.int64] = start_contig_descriptor.scaffold_id
-    #             end_scaffold_id: Optional[np.int64] = end_contig_descriptor.scaffold_id
-    #             assert (
-    #                 (
-    #                     start_scaffold_id == scaffold_id and end_scaffold_id == scaffold_id
-    #                 ) or (
-    #                     start_scaffold_id != scaffold_id and end_scaffold_id != scaffold_id
-    #                 )
-    #             ), f"Only one bordering contig belongs to the scaffold with id={scaffold_id}?"
-    #             if (start_scaffold_id == scaffold_id) and (end_scaffold_id == scaffold_id):
-    #                 return scaffold_descriptor
-    #             elif (start_scaffold_id != scaffold_id) and (end_scaffold_id != scaffold_id):
-    #                 self.scaffold_holder.remove_scaffold_by_id(scaffold_id)
-    #                 return None
-    #             else:
-    #                 raise Exception(
-    #                     f"Only one bordering contig belongs to the scaffold with id={scaffold_id}?")
-    #     except KeyError:
-    #         return None
-
-    # def group_contigs_into_scaffold(self, queried_start_contig_id: np.int64, queried_end_contig_id: np.int64,
-    #                                 name: Optional[str] = None, spacer_length: int = 1000) -> ScaffoldDescriptor:
-    #     queried_start_node: ContigTree.Node = self.contig_tree.get_updated_contig_node_by_contig_id(
-    #         queried_start_contig_id)
-    #     queried_end_node: ContigTree.Node = self.contig_tree.get_updated_contig_node_by_contig_id(
-    #         queried_end_contig_id)
-
-    #     queried_start_contig_scaffold_id = queried_start_node.contig_descriptor.scaffold_id
-    #     queried_end_contig_scaffold_id = queried_end_node.contig_descriptor.scaffold_id
-
-    #     start_contig_id: np.int64 = (
-    #         queried_start_contig_id
-    #         if queried_start_contig_scaffold_id is None
-    #         else self.scaffold_holder.get_scaffold_by_id(
-    #             queried_start_contig_scaffold_id).scaffold_borders.start_contig_id
-    #     )
-    #     end_contig_id: np.int64 = (
-    #         queried_end_contig_id
-    #         if queried_end_contig_scaffold_id is None
-    #         else self.scaffold_holder.get_scaffold_by_id(queried_end_contig_scaffold_id).scaffold_borders.end_contig_id
-    #     )
-
-    #     new_scaffold: ScaffoldDescriptor = self.scaffold_holder.create_scaffold(
-    #         name, ScaffoldDirection.FORWARD, spacer_length)
-    #     new_scaffold.scaffold_borders = ScaffoldBorders(
-    #         start_contig_id, end_contig_id)
-    #     _, start_contig_order = self.contig_tree.get_contig_order(
-    #         start_contig_id)
-    #     _, end_contig_order = self.contig_tree.get_contig_order(
-    #         end_contig_id)
-    #     es: ContigTree.ExposedSegment = self.contig_tree.expose_segment_by_count(
-    #         start_contig_order, end_contig_order)
-    #     if es.segment is not None:
-    #         es.segment.contig_descriptor.scaffold_id = new_scaffold.scaffold_id
-    #         es.segment.needs_updating_scaffold_id_in_subtree = True
-    #         self.scaffold_holder.remove_scaffold_by_id(
-    #             queried_start_contig_scaffold_id)
-    #         self.scaffold_holder.remove_scaffold_by_id(
-    #             queried_end_contig_scaffold_id)
-    #     self.contig_tree.commit_exposed_segment(es)
-    #     self.clear_caches()
-    #     return new_scaffold
-
-    # def ungroup_contigs_from_scaffold(self, queried_start_contig_id: np.int64, queried_end_contig_id: np.int64) -> None:
-    #     queried_start_node: ContigTree.Node = self.contig_tree.get_updated_contig_node_by_contig_id(
-    #         queried_start_contig_id)
-    #     queried_end_node: ContigTree.Node = self.contig_tree.get_updated_contig_node_by_contig_id(
-    #         queried_end_contig_id)
-
-    #     queried_start_contig_scaffold_id = queried_start_node.contig_descriptor.scaffold_id
-    #     queried_end_contig_scaffold_id = queried_end_node.contig_descriptor.scaffold_id
-
-    #     start_contig_id: np.int64 = (
-    #         queried_start_contig_id
-    #         if queried_start_contig_scaffold_id is None
-    #         else self.scaffold_holder.get_scaffold_by_id(
-    #             queried_start_contig_scaffold_id).scaffold_borders.start_contig_id
-    #     )
-    #     end_contig_id: np.int64 = (
-    #         queried_end_contig_id
-    #         if queried_end_contig_scaffold_id is None
-    #         else self.scaffold_holder.get_scaffold_by_id(queried_end_contig_scaffold_id).scaffold_borders.end_contig_id
-    #     )
-
-    #     _, start_contig_order = self.contig_tree.get_contig_order(
-    #         start_contig_id)
-    #     _, end_contig_order = self.contig_tree.get_contig_order(
-    #         end_contig_id)
-    #     es: ContigTree.ExposedSegment = self.contig_tree.expose_segment_by_count(
-    #         start_contig_order, end_contig_order)
-    #     if es.segment is not None:
-    #         es.segment.contig_descriptor.scaffold_id = None
-    #         es.segment.needs_updating_scaffold_id_in_subtree = True
-    #         self.scaffold_holder.remove_scaffold_by_id(
-    #             queried_start_contig_scaffold_id)
-    #         self.scaffold_holder.remove_scaffold_by_id(
-    #             queried_end_contig_scaffold_id)
-    #     self.contig_tree.commit_exposed_segment(es)
-    #     self.clear_caches()
 
     def extend_bp_borders_to_contigs(
         self,
@@ -1462,53 +1014,46 @@ class ChunkedFile(object):
         with self.fasta_file_lock.gen_rlock():
             if self.fasta_processor is None:
                 raise Exception("FASTA File is not linked")
+            
+            contigs_and_dirs, scaffolds_and_lengths = self.get_assembly_info()
 
-            ordered_contig_descriptors: List[ContigDescriptor] = []
-
-            def traverse_fn(node: ContigTree.Node) -> None:
-                ordered_contig_descriptors.append(node.contig_descriptor)
-
-            self.contig_tree.traverse(traverse_fn)
-
-            ordered_finalization_records: List[Tuple[FinalizeRecordType, List[ContigDescriptor]]] = [
+            ordered_finalization_records: List[Tuple[Optional[ScaffoldDescriptor], List[Tuple[ContigDescriptor, ContigDirection]]]] = [
             ]
-
-            for contig_descriptor in ordered_contig_descriptors:
-                if contig_descriptor.scaffold_id is None:
+            
+            scaffold_index: int = 0
+            bp_position: int = 0
+            scaffold_left_bp: int = 0
+            
+            for ctg, ctg_dir in contigs_and_dirs:
+                while (scaffold_index < len(scaffolds_and_lengths)) and (bp_position >= scaffold_left_bp + scaffolds_and_lengths[scaffold_index][1]):
+                    scaffold_left_bp += scaffolds_and_lengths[scaffold_index][1]
+                    scaffold_index += 1
+                
+                if scaffold_index < len(scaffolds_and_lengths):
+                    opt_sd = scaffolds_and_lengths[scaffold_index][0]
+                else:
+                    opt_sd = None
+                
+                if opt_sd is None:
                     ordered_finalization_records.append((
-                        FinalizeRecordType.CONTIG_NOT_IN_SCAFFOLD,
-                        [contig_descriptor]
+                        None,
+                        [(ctg, ctg_dir)]
                     ))
                 else:
-                    last_scaffold_id: Optional[np.int64] = None
+                    last_scaffold_desc: Optional[ScaffoldDescriptor] = None
                     if len(ordered_finalization_records) > 0:
-                        last_scaffold_id = ordered_finalization_records[-1][1][-1].scaffold_id
-                    if contig_descriptor.scaffold_id is not None and contig_descriptor.scaffold_id == last_scaffold_id:
-                        assert (
-                            ordered_finalization_records[-1][0] == FinalizeRecordType.SCAFFOLD
-                        ), "Last contig descriptor has a scaffold_id but marked as out-of-scaffold?"
-                        ordered_finalization_records[-1][1].append(
-                            contig_descriptor)
+                        last_scaffold_desc = ordered_finalization_records[-1][0]
+                    if last_scaffold_desc is not None and last_scaffold_desc.scaffold_id == opt_sd.scaffold_id and last_scaffold_desc.scaffold_name == opt_sd.scaffold_name:
+                        ordered_finalization_records[-1][1].append((ctg, ctg_dir))
                     else:
-                        ordered_finalization_records.append((
-                            FinalizeRecordType.SCAFFOLD,
-                            [contig_descriptor]
-                        ))
+                        ordered_finalization_records.append((opt_sd, [(ctg, ctg_dir)]))
+                 
+                bp_position += ctg.contig_length_at_resolution[0]
 
-            # with self.scaffold_tree.root_lock.gen_rlock():
-            scaffold_table: Dict[np.int64, ScaffoldDescriptor] = dict()
-
-            def traverse_fn(n: ScaffoldTree.Node) -> None:
-                if n.scaffold_descriptor is not None:
-                    scaffold_table[n.scaffold_descriptor.scaffold_id] = n.scaffold_descriptor
-
-            self.scaffold_tree.traverse(traverse_fn)
 
             self.fasta_processor.finalize_fasta_for_assembly(
                 writable_stream,
                 ordered_finalization_records,
-                scaffold_table,  # self.scaffold_holder.scaffold_table,
-                self.contig_names
             )
 
     def load_assembly_from_agp(self, agp_filepath: Path) -> None:
@@ -1620,7 +1165,297 @@ class ChunkedFile(object):
                     intercontig_spacer=intercontig_spacer
                 )
                 
+    def convert_units(
+        self,
+        position: np.int64,
+        from_resolution: np.int64,
+        from_units: QueryLengthUnit,
+        to_resolution: np.int64,
+        to_units: QueryLengthUnit
+    ) -> np.int64:
+        assert (
+            (self.state == ChunkedFile.FileState.OPENED) 
+            and 
+            (self.contig_tree is not None) 
+        ), "Operation requires file to be opened"
+                
+        assert (
+            (from_units == QueryLengthUnit.BASE_PAIRS) == (from_resolution == 0)
+        ), "If converting from base pairs, set from_resolution=0"
+        assert (
+            (to_units == QueryLengthUnit.BASE_PAIRS) == (to_resolution == 0)
+        ), "If converting to base pairs, set to_resolution=0"
+        
+        es = self.contig_tree.expose_segment(
+            from_resolution,
+            position,
+            position+1,
+            from_units
+        )
+        left_from_units = 0
+        left_to_units = 0
+        if es.less is not None:
+            left_from_units = es.less.get_sizes()[{QueryLengthUnit.BASE_PAIRS: 0, QueryLengthUnit.BINS: 0, QueryLengthUnit.PIXELS: 2}[from_units]][from_resolution]
+            left_to_units = es.less.get_sizes()[{QueryLengthUnit.BASE_PAIRS: 0, QueryLengthUnit.BINS: 0, QueryLengthUnit.PIXELS: 2}[to_units]][to_resolution]
             
+        delta_from_units = position - left_from_units
+        delta_bp = delta_from_units if from_units == QueryLengthUnit.BASE_PAIRS else (delta_from_units*from_resolution)
+        
+        delta_to_units = delta_bp if to_units == QueryLengthUnit.BASE_PAIRS else (delta_bp//to_resolution)
+        
+        return left_to_units + delta_to_units           
+            
+                
+                
+    def split_contig_at_bin(
+        self,
+        split_position: np.int64,
+        split_resolution: np.int64,        
+        split_units: QueryLengthUnit
+    ) -> None:
+        assert (
+            (self.state == ChunkedFile.FileState.OPENED) 
+            and 
+            (self.contig_tree is not None) 
+            and
+            (self.scaffold_tree is not None) 
+        ), "Operation requires file to be opened"
+        
+        if split_units == QueryLengthUnit.BASE_PAIRS:
+            assert (
+                split_resolution == 0
+            ), "In bp query resolution should be set to 0"
+            
+        min_resolution = min(self.resolutions)
+        
+        with self.contig_tree.root_lock.gen_wlock(), self.scaffold_tree.root_lock.gen_wlock():
+            split_position_bins = self.convert_units(
+                position=split_position,
+                from_resolution=split_resolution,
+                from_units=split_units,
+                to_resolution=min_resolution,
+                to_units=QueryLengthUnit.BINS                
+            )
+            
+            es = self.contig_tree.expose_segment(
+                min_resolution,
+                split_position_bins, 
+                split_position_bins+1,
+                units=QueryLengthUnit.BINS
+            )
+            
+            left_bins = 0
+            if es.less is not None:
+                left_bins = es.less.get_sizes()[0][min_resolution]
+                
+            split_position_bp = self.convert_units(split_position, split_resolution, split_units, np.int64(0), QueryLengthUnit.BASE_PAIRS)
+            
+            assert (
+                es.segment is not None
+            ), "Split position does not fall into any contig?"
+            
+            segment_sizes = es.segment.get_sizes()
+            
+            assert (
+                segment_sizes[1] == 1
+            ), f"Split position should fall into exactly one contig (currently segment holds {segment_sizes[1]} nodes)"
+            
+            node = es.segment
+            old_contig = node.contig_descriptor
+            
+            delta_from_contig_start = split_position_bins - left_bins
+            
+            max_contig_id = max(map(lambda cd: cd.contig_id, self.contig_id_to_contig_descriptor.values()))
+            new_contig_ids: Tuple[np.int64, np.int64] = (1+max_contig_id, 2+max_contig_id)
+            new_contig_names: Tuple[str, str] = (f"{old_contig.contig_name}_hictsplit_1", f"{old_contig.contig_name}_hictsplit_2")
+            new_contig_length_bps: Tuple[np.int64, np.int64] = (delta_from_contig_start*min_resolution, old_contig.contig_length_at_resolution[0] - (1+delta_from_contig_start)*min_resolution)
+            
+            new_contig_length_at_resolution: Tuple[Dict[np.int64, np.int64], Dict[np.int64, np.int64]] = (dict(), dict())
+            new_contig_presence_in_resolution: Tuple[Dict[np.int64, ContigHideType], Dict[np.int64, ContigHideType]] = (dict(), dict())
+            new_atus: Tuple[Dict[np.int64, List[ATUDescriptor]], Dict[np.int64, List[ATUDescriptor]]] = (dict(), dict())
+            
+            new_contig_names_in_source_fasta: Tuple[str, str] = (old_contig.contig_name_in_source_fasta, old_contig.contig_name_in_source_fasta)
+            new_offsets_inside_fasta_contig: Tuple[np.int64, np.int64]
+            if node.direction == ContigDirection.FORWARD:
+                new_offsets_inside_fasta_contig = (old_contig.offset_inside_fasta_contig, old_contig.offset_inside_fasta_contig + (1+delta_from_contig_start)*min_resolution)
+            else:
+                new_offsets_inside_fasta_contig = (old_contig.offset_inside_fasta_contig + (1+delta_from_contig_start)*min_resolution, old_contig.offset_inside_fasta_contig)
+
+            
+            
+            for resolution in self.resolutions:
+                
+                delta_from_start_at_resolution = self.convert_units(
+                    delta_from_contig_start,
+                    min_resolution, 
+                    QueryLengthUnit.BINS,
+                    resolution,
+                    QueryLengthUnit.BINS
+                )
+                
+                if resolution == min_resolution:
+                    new_contig_length_at_resolution[0][resolution] = delta_from_contig_start
+                    new_contig_length_at_resolution[1][resolution] = old_contig.contig_length_at_resolution[resolution] - delta_from_contig_start - 1
+                else:
+                    new_contig_length_at_resolution[0][resolution] = delta_from_start_at_resolution
+                    new_contig_length_at_resolution[1][resolution] = old_contig.contig_length_at_resolution[resolution] - delta_from_start_at_resolution
+                    
+                def copy_true_atu(atu: ATUDescriptor, contig_direction: ContigDirection) -> ATUDescriptor:
+                    new_atu = atu.clone()
+                    if contig_direction == ContigDirection.REVERSED:
+                        new_atu.direction = ATUDirection(1-new_atu.direction.value)
+                    return new_atu
+                    
+                source_atus = tuple(map(lambda old_atu: copy_true_atu(old_atu, node.direction), old_contig.atus[resolution]))
+                source_atus_prefix_sum = old_contig.atu_prefix_sum_length_bins[resolution]
+                if node.direction == ContigDirection.REVERSED:
+                    source_atus_prefix_sum = source_atus_prefix_sum.copy()
+                    source_atus_prefix_sum[:-1] = source_atus_prefix_sum[-1] - np.flip(source_atus_prefix_sum)[1:]
+                    source_atus = tuple(reversed(source_atus))
+                    
+                index_of_atu_where_split_occurs = np.searchsorted(source_atus_prefix_sum, delta_from_start_at_resolution, side='left')                    
+                old_join_atu = source_atus[index_of_atu_where_split_occurs]
+                atus_l = list(source_atus[:index_of_atu_where_split_occurs])
+                atus_r = list(source_atus[-1+1+index_of_atu_where_split_occurs:])
+                atus_l_length_bins = source_atus_prefix_sum[index_of_atu_where_split_occurs-1] if index_of_atu_where_split_occurs > 0 else 0
+                
+                #atus_r_length_bins = source_atus_prefix_sum[-1] - atus_l_length_bins
+                
+                delta_l = delta_from_start_at_resolution - atus_l_length_bins
+                if delta_l > 0:
+                    atus_l.append(
+                        ATUDescriptor.make_atu_descriptor(
+                            old_join_atu.stripe_descriptor,
+                            old_join_atu.start_index_in_stripe_incl if old_join_atu.direction == ATUDirection.FORWARD else (old_join_atu.end_index_in_stripe_excl - delta_l),
+                            (old_join_atu.start_index_in_stripe_incl + delta_l) if old_join_atu.direction == ATUDirection.FORWARD else old_join_atu.end_index_in_stripe_excl,
+                            old_join_atu.direction                                
+                        )
+                    )
+                    
+                assert (
+                    atus_l_length_bins + delta_l == new_contig_length_at_resolution[0][resolution]
+                ), "Unexpected length of left part"
+                
+                #delta_r_positive = new_contig_length_at_resolution[1][resolution] - atus_r_length_bins
+                
+                new_r_atu_start = (old_join_atu.start_index_in_stripe_incl + delta_l + (0 if resolution != min_resolution else 1)) if old_join_atu.direction == ATUDirection.FORWARD else (old_join_atu.start_index_in_stripe_incl)
+                new_r_atu_end = (old_join_atu.end_index_in_stripe_excl) if old_join_atu.direction == ATUDirection.FORWARD else (old_join_atu.end_index_in_stripe_excl - delta_l + (0 if resolution != min_resolution else 1))
+                
+                if new_r_atu_end - new_r_atu_start > 0:
+                    # atus_r[0] = ATUDescriptor.make_atu_descriptor(
+                    #         old_join_atu.stripe_descriptor,
+                    #         (old_join_atu.start_index_in_stripe_incl + delta_r_positive) if old_join_atu.direction == ATUDirection.FORWARD else old_join_atu.start_index_in_stripe_incl,
+                    #         old_join_atu.end_index_in_stripe_excl if old_join_atu.direction == ATUDirection.FORWARD else (old_join_atu.end_index_in_stripe_excl - delta_r_positive),
+                    #         old_join_atu.direction     
+                    #     )
+                    atus_r[0] = ATUDescriptor.make_atu_descriptor(
+                            old_join_atu.stripe_descriptor,
+                            new_r_atu_start,
+                            new_r_atu_end,
+                            old_join_atu.direction        
+                        )
+                else:
+                    atus_r = atus_r[1:]
+                    
+                    
+                assert (
+                    sum(map(lambda atu: atu.end_index_in_stripe_excl - atu.start_index_in_stripe_incl, atus_r)) == new_contig_length_at_resolution[1][resolution]
+                ), "Unexpected length of right part"
+
+                
+                if old_contig.presence_in_resolution[resolution] in (
+                    ContigHideType.FORCED_HIDDEN, ContigHideType.FORCED_SHOWN
+                ):
+                    new_contig_length_at_resolution[0][resolution] = old_contig.presence_in_resolution[resolution] 
+                    new_contig_length_at_resolution[1][resolution] = old_contig.presence_in_resolution[resolution] 
+                else:
+                    new_contig_presence_in_resolution[0][resolution] = ContigHideType.AUTO_SHOWN if new_contig_length_bps[0] >= resolution else ContigHideType.AUTO_HIDDEN
+                    new_contig_presence_in_resolution[1][resolution] = ContigHideType.AUTO_SHOWN if new_contig_length_bps[1] >= resolution else ContigHideType.AUTO_HIDDEN
+                    
+                new_atus[0][resolution] = atus_l
+                new_atus[1][resolution] = atus_r
+                
+            new_contigs = tuple(
+                map(
+                    lambda t: ContigDescriptor.make_contig_descriptor(*t), 
+                    zip(
+                        new_contig_ids,
+                        new_contig_names,
+                        new_contig_length_bps,
+                        new_contig_length_at_resolution,
+                        new_contig_presence_in_resolution,
+                        new_atus,
+                        new_contig_names_in_source_fasta,
+                        new_offsets_inside_fasta_contig
+                    )
+                )
+            )
+            
+            new_nodes = tuple(map(lambda cd: ContigTree.Node.make_new_node_from_descriptor(cd, node.direction), new_contigs))
+            
+            new_segment_part = ContigTree.Node.merge_nodes(*new_nodes)
+            
+            new_exposed_segment = ContigTree.ExposedSegment(es.less, new_segment_part, es.greater)
+            
+            self.contig_tree.commit_exposed_segment(new_exposed_segment)
+            
+            self.scaffold_tree.remove_segment_from_assembly(
+                start_bp_incl=split_position_bp,
+                end_bp_excl=split_position_bp + min_resolution
+            )
+        
+        
+    def get_ordered_contigs(self) -> List[Tuple[ContigDescriptor, ContigDirection]]:
+        tree = self.contig_tree
+        result: List[Tuple[ContigDescriptor, ContigDirection]] = []
+
+        assert (
+            tree is not None
+        ), "No contig tree is present?"
+
+        def traverse_fn(n: ContigTree.Node) -> None:
+            nonlocal result
+            result.append((
+                n.contig_descriptor,
+                n.true_direction()
+            ))
+
+        tree.traverse(traverse_fn)
+
+        return result
+
+    def get_ordered_scaffolds(self) -> List[Tuple[Optional[ScaffoldDescriptor], int]]:
+        tree = self.scaffold_tree
+        result: List[Tuple[Optional[ScaffoldDescriptor], int]] = []
+
+        assert (
+            tree is not None
+        ), "No scaffold tree is present?"
+
+        def traverse_fn(n: ScaffoldTree.Node) -> None:
+            nonlocal result
+            result.append((
+                n.scaffold_descriptor,
+                int(n.length_bp)
+            ))
+
+        tree.traverse(traverse_fn)
+
+        return result
+
+    def get_assembly_info(self) -> Tuple[List[Tuple[ContigDescriptor, ContigDirection]], List[Tuple[Optional[ScaffoldDescriptor], int]]]:
+        contig_tree = self.contig_tree
+        scaffold_tree = self.scaffold_tree
+
+        assert (
+            contig_tree is not None
+        ), "Contig tree is None?"
+        assert (
+            scaffold_tree is not None
+        ), "Scaffold tree is None?"
+
+        with contig_tree.root_lock.gen_rlock(), scaffold_tree.root_lock.gen_rlock():
+            return self.get_ordered_contigs(), self.get_ordered_scaffolds()
                 
             
             

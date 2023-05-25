@@ -347,7 +347,7 @@ class ContactMatrixFacet(object):
         assert agp_filepath.exists() and agp_filepath.is_file(
         ), "AGP file path should point to existent file"
         f.load_assembly_from_agp(agp_filepath)
-        
+
     @staticmethod
     def get_ordered_contigs(f: ChunkedFile) -> List[Tuple[ContigDescriptor, ContigDirection]]:
         """
@@ -356,25 +356,8 @@ class ContactMatrixFacet(object):
         :param f: File descriptor.
         :return A list of tuples `(ctg, dir)`.
         """
-        tree = f.contig_tree
-        result: List[Tuple[ContigDescriptor, ContigDirection]] = []
-        
-        assert (
-            tree is not None
-        ), "No contig tree is present?"
-        
-        def traverse_fn(n: ContigTree.Node) -> None:
-            nonlocal result
-            result.append((
-                n.contig_descriptor,
-                n.true_direction()
-            ))
-        
-        with tree.root_lock.gen_rlock():
-            tree.traverse(traverse_fn)
-            
-        return result
-    
+        return f.get_ordered_contigs()
+
     @staticmethod
     def get_ordered_scaffolds(f: ChunkedFile) -> List[Tuple[Optional[ScaffoldDescriptor], int]]:
         """
@@ -383,25 +366,8 @@ class ContactMatrixFacet(object):
         :param f: File descriptor.
         :return A list of tuples `(scaf, len)` where `scaf` can be either a `ScaffoldDescriptor` or `None` (for unscaffolded region) and `len` is its length in base pairs.
         """
-        tree = f.scaffold_tree      
-        result: List[Tuple[Optional[ScaffoldDescriptor], int]] = []
-        
-        assert (
-            tree is not None
-        ), "No scaffold tree is present?"
-        
-        def traverse_fn(n: ScaffoldTree.Node) -> None:
-            nonlocal result
-            result.append((
-                n.scaffold_descriptor,
-                int(n.length_bp)
-            ))
-        
-        with tree.root_lock.gen_rlock():
-            tree.traverse(traverse_fn)
-            
-        return result
-    
+        return f.get_ordered_scaffolds()
+
     @staticmethod
     def get_assembly_info(f: ChunkedFile) -> Tuple[List[Tuple[ContigDescriptor, ContigDirection]], List[Tuple[Optional[ScaffoldDescriptor], int]]]:
         """
@@ -410,19 +376,61 @@ class ContactMatrixFacet(object):
         :param f: File descriptor.
         :return A tuple of list of ordered contig descriptots and a list of ordered scaffold descriptors.
         """
-        
-        contig_tree = f.contig_tree      
-        scaffold_tree = f.scaffold_tree      
-                
-        assert (
-            contig_tree is not None
-        ), "Contig tree is None?"
-        assert (
-            scaffold_tree is not None
-        ), "Scaffold tree is None?"
-        
-        
-        with contig_tree.root_lock.gen_rlock(), scaffold_tree.root_lock.gen_rlock():
-            return ContactMatrixFacet.get_ordered_contigs(f), ContactMatrixFacet.get_ordered_scaffolds(f)
-            
-        
+        return f.get_assembly_info()
+
+    @staticmethod
+    def convert_units(
+        f: ChunkedFile,
+        position: np.int64,
+        from_resolution: np.int64,
+        from_units: QueryLengthUnit,
+        to_resolution: np.int64,
+        to_units: QueryLengthUnit
+    ) -> np.int64:
+        """_Performs conversion between different units and/or resolutions in current assembly._
+        When converting pixels or bins to base pairs, returns starting base pair of each pixel or bin.
+        When converting base pairs to pixels or bins, returns pixel or bin that holds that base pair.
+
+        Args:
+            f (ChunkedFile): _A file descriptor._
+            position (np.int64): _Position that should be converted._
+            from_resolution (np.int64): _Resolution, at which that position was taken (pass 0 if converting from base pairs)._
+            from_units (QueryLengthUnit): _Units of the given position._
+            to_resolution (np.int64): _Target resolution to which convert the given position (pass 0 if converting to base pairs)._
+            to_units (QueryLengthUnit): _Target units._
+
+        Returns:
+            np.int64: _A position at target resolution expressed in target units._
+        """
+        return f.convert_units(
+            position,
+            from_resolution,
+            from_units,
+            to_resolution,
+            to_units
+        )
+    
+    @staticmethod    
+    def split_contig_at_bin(
+        f: ChunkedFile,
+        split_position: np.int64,
+        split_resolution: np.int64,        
+        split_units: QueryLengthUnit
+    ) -> None:
+        """_Splits contig at given position._
+        Removes the bin at highest possible resolution which holds the given position. Other resolutions have their bins split between two contigs without any removal.
+
+        Args:
+            f (ChunkedFile): _File descriptor._
+            split_position (np.int64): _Position at which to perform the split (see comments above)._
+            split_resolution (np.int64): _Resolution at which the position is provided (pass 0 if it's given in base pairs)._
+            split_units (QueryLengthUnit): _Units of position._
+
+        Returns:
+            _type_: _description_
+        """
+        return f.split_contig_at_bin(
+            split_position,
+            split_resolution,
+            split_units
+        )
