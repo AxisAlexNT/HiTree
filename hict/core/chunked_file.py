@@ -94,7 +94,8 @@ class ChunkedFile(object):
         self.opened_hdf_file: h5py.File = h5py.File(
             self.filepath,
             mode='r',
-            swmr=True
+            swmr=True,
+            libver='latest'
         )        
         contig_id_to_length_by_resolution: Dict[np.int64,
                                                 Dict[np.int64, np.int64]] = dict()
