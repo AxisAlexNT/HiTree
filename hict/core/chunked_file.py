@@ -112,7 +112,7 @@ class ChunkedFile(object):
                 dtype=np.int64
             )
             self.resolutions = resolutions
-            self.dtype = f[f'resolutions/{max(resolutions)}/treap_coo/block_vals'].dtype
+            self.dtype = f[f'resolutions/{str(max(resolutions))}/treap_coo/block_vals'].dtype
 
             for resolution in resolutions:
                 (
