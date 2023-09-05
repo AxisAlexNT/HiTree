@@ -1195,8 +1195,8 @@ class ChunkedFile(object):
         left_from_units = 0
         left_to_units = 0
         if es.less is not None:
-            left_from_units = es.less.get_sizes()[{QueryLengthUnit.BASE_PAIRS: 0, QueryLengthUnit.BINS: 0, QueryLengthUnit.PIXELS: 2}[from_units]][from_resolution]
-            left_to_units = es.less.get_sizes()[{QueryLengthUnit.BASE_PAIRS: 0, QueryLengthUnit.BINS: 0, QueryLengthUnit.PIXELS: 2}[to_units]][to_resolution]
+            left_from_units = es.less.get_sizes()[{QueryLengthUnit.BASE_PAIRS: 0, QueryLengthUnit.BINS: 1, QueryLengthUnit.PIXELS: 2}[from_units]][from_resolution]
+            left_to_units = es.less.get_sizes()[{QueryLengthUnit.BASE_PAIRS: 0, QueryLengthUnit.BINS: 1, QueryLengthUnit.PIXELS: 2}[to_units]][to_resolution]
             
         delta_from_units = position - left_from_units
         delta_bp = delta_from_units if from_units == QueryLengthUnit.BASE_PAIRS else (delta_from_units*from_resolution)
