@@ -12,7 +12,8 @@ class AGPScaffoldRecord(NamedTuple):
 class AGPContigRecord(NamedTuple):
     name: str
     direction: ContigDirection
-    length: int
+    start_position: int
+    end_position: int
 
 
 class AGPparser(object):
@@ -24,17 +25,18 @@ class AGPparser(object):
         self.scaffold_records_list: List[AGPScaffoldRecord] = list()
         self.parseAGP(filename)
 
-    def parseAGPLine(self, line: str) -> Tuple[str, str, str, int]:
+    def parseAGPLine(self, line: str) -> Tuple[str, str, str, int, int]:
         toks: List[str] = line.split()
         if toks[4] == 'N':
             gap_len: str = toks[5]
-            return ('N_spacer', gap_len, '', 0)
+            return ('N_spacer', gap_len, '', 0, 0)
         elif toks[4] == 'W':
             seq_object_name: str = toks[0]
             component_name: str = toks[5]
             component_direction: str = toks[8]
-            component_len: int = int(toks[7])
-            return (seq_object_name, component_name, component_direction, component_len)
+            component_beg: int = int(toks[6])
+            component_end: int = int(toks[7])
+            return (seq_object_name, component_name, component_direction, component_beg, component_end)
         else:
             raise Exception(
                 f'unexpected symbol in agp component_type column: {toks[4]}')
@@ -47,18 +49,20 @@ class AGPparser(object):
             end_ctg: str
             ctg_name: str
             ctg_dir: ContigDirection
-            ctg_len: int
+            ctg_start_position: int
+            ctg_end_position: int
             for i, line in enumerate(agp_file):
-                scaf_name, ctg_name, ctg_dir_str, ctg_len = self.parseAGPLine(line)
+                scaf_name, ctg_name, ctg_dir_str, ctg_start_position, ctg_end_position = self.parseAGPLine(line)
                 if scaf_name == 'N_spacer':
                     continue
                 if ctg_dir_str not in ("+", "-"):
-                    raise Exception(
-                        f'unexpected symbol in agp direction column: {ctg_dir}')
+                    raise RuntimeError(
+                        f'unexpected symbol in agp direction column: {ctg_dir}'
+                    )
                 ctg_dir = ContigDirection(
                     1) if ctg_dir_str == '+' else ContigDirection(0)
                 self.contig_records_list.append(
-                    AGPContigRecord(ctg_name, ctg_dir, ctg_len))
+                    AGPContigRecord(ctg_name, ctg_dir, ctg_start_position, ctg_end_position))
                 if i == 0:
                     cur_scaf_name = scaf_name
                     start_ctg = ctg_name
